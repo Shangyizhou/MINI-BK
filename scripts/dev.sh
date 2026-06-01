@@ -27,10 +27,11 @@ until docker exec mini-bk-pg pg_isready -U mini-bk 2>/dev/null; do
     sleep 1
 done
 
-# Run migrations
+echo "Installing migrate CLI..."
+go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+
 echo "Running migrations..."
-migrate -path migrations -database "postgres://mini-bk:mini-bk@localhost:5432/mini-bk?sslmode=disable" up 2>/dev/null || \
-    go run github.com/golang-migrate/migrate/v4/cmd/migrate -path migrations -database "postgres://mini-bk:mini-bk@localhost:5432/mini-bk?sslmode=disable" up
+migrate -path migrations -database "postgres://mini-bk:mini-bk@localhost:5432/mini-bk?sslmode=disable" up
 
 # Build and run
 echo "Building and starting server..."
