@@ -86,18 +86,123 @@ Created → Pending → Running → Success/Failed/Canceled
 - API 层返回统一的 `{"error": "..."}` 格式
 - 结构化日志使用 `log/slog`
 
-## 验证命令
+## 验证
+
+### 快速验证（无外部依赖）
 
 ```bash
-# 单元测试
-go test ./internal/... -v -count=1
-
-# 编译
-go build ./cmd/server
-
-# 静态检查
+# 1. 静态检查 + 单元测试 + 编译（无需 PostgreSQL）
 go vet ./...
+go test ./internal/... -v -count=1   # store 包 SKIP（无 PG），其余 PASS
+go build ./cmd/server                # 编译成功，无输出
 ```
+
+### 完整验证（需要 Docker + PostgreSQL）
+
+按以下顺序执行，每一步附预期输出。
+
+**Step 1: 启动 PostgreSQL + 运行迁移**
+
+```bash
+./scripts/setup-pg.sh
+```
+
+预期输出：
+```
+=== Setting up PostgreSQL ===
+Creating PostgreSQL container...
+Waiting for PostgreSQL to be ready...
+/var/run/postgresql:5432 - accepting connections
+Installing migrate CLI...
+Running migrations...
+1/u create_tasks (XXms)
+PostgreSQL is ready!
+```
+
+**Step 2: 单元测试（含 store 包）**
+
+```bash
+go test ./internal/... -v -count=1
+```
+
+预期输出：7 个包全部 `ok`，store 包不再 SKIP。
+
+**Step 3: 启动服务**
+
+```bash
+go run ./cmd/server
+```
+
+预期输出：
+```json
+{"level":"INFO","msg":"已连接到 PostgreSQL"}
+{"level":"INFO","msg":"调度器已启动","total_cpu":N,"total_mem_mb":8192,...}
+{"level":"INFO","msg":"服务启动中","addr":"0.0.0.0:8080"}
+```
+
+**Step 4: 手动验证 API（另开终端）**
+
+```bash
+# 创建任务
+curl -s -X POST http://localhost:8080/api/v1/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"name":"hello","command":"echo hello world"}'
+# → {"task_uid":"xxx-xxx","status":"pending","created_at":"..."}
+
+# 等 1 秒后查状态
+sleep 1
+curl -s http://localhost:8080/api/v1/tasks
+# → {"tasks":[...],"total":1,"page":1,"size":20}
+
+# 查看日志
+curl -s http://localhost:8080/api/v1/tasks/<task_uid>/log
+# → {"stdout":"hello world\n","stderr":""}
+
+# 资源余量
+curl -s http://localhost:8080/api/v1/resources
+# → {"cpu_cores":N,"memory_mb":8192,...}
+
+# 统计
+curl -s http://localhost:8080/api/v1/stats
+# → {"total_tasks":1,"success":1,"failed":0,"running":0,"success_rate":1}
+```
+
+**Step 5: 取消任务**
+
+```bash
+curl -s -X POST http://localhost:8080/api/v1/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"name":"long-task","command":"sleep 60"}'
+# → {"task_uid":"yyy-yyy",...}
+
+curl -s -X POST http://localhost:8080/api/v1/tasks/yyy-yyy/cancel
+# → {"message":"任务已取消"}
+```
+
+**Step 6: 超时任务**
+
+```bash
+curl -s -X POST http://localhost:8080/api/v1/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"name":"timeout-task","command":"sleep 30","timeout_sec":1}'
+# 等 2 秒后查状态 → "failed", error_message 含 "timeout"
+```
+
+### 一键开发启动
+
+```bash
+./scripts/dev.sh    # PG + 迁移 + 编译 + 启动，一条命令
+```
+
+### 便捷脚本清单
+
+| 脚本 | 用途 |
+|------|------|
+| `./scripts/setup-pg.sh` | 创建 PG 容器 + 运行迁移 |
+| `./scripts/dev.sh` | 一键开发启动 |
+| `./scripts/test.sh` | 单元测试 + go vet |
+| `./scripts/test-integration.sh` | 集成测试（需服务已启动） |
+| `./scripts/build.sh` | 构建二进制到 `bin/mini-bk-server` |
 
 ## 已知风险
 
