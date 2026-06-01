@@ -25,6 +25,6 @@ echo "Installing migrate CLI..."
 go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
 
 echo "Running migrations..."
-migrate -path migrations -database "postgres://mini-bk:mini-bk@localhost:5432/mini-bk?sslmode=disable" up
+"$HOME/go/bin/migrate" -path migrations -database "postgres://mini-bk:mini-bk@localhost:5432/mini-bk?sslmode=disable" up
 
 echo "PostgreSQL is ready!"
