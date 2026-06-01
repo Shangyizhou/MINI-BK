@@ -20,11 +20,6 @@ type taskService interface {
 	RerunTask(ctx context.Context, uid string) (*model.Task, error)
 }
 
-// resourceProvider 定义资源提供接口。
-type resourceProvider interface {
-	GetTotalResources() (cpu, memMB int)
-}
-
 // createTask 处理 POST /api/v1/tasks 创建任务。
 func createTask(svc taskService) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -156,24 +151,3 @@ func getTaskLog(svc taskService) gin.HandlerFunc {
 	}
 }
 
-// getResources 处理 GET /api/v1/resources 获取资源信息。
-func getResources(rp resourceProvider) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if rp == nil {
-			c.JSON(http.StatusNotImplemented, gin.H{"error": "资源查询未实现"})
-			return
-		}
-		cpu, memMB := rp.GetTotalResources()
-		c.JSON(http.StatusOK, gin.H{
-			"cpu":       cpu,
-			"memory_mb": memMB,
-		})
-	}
-}
-
-// getStats 处理 GET /api/v1/stats 获取统计信息。
-func getStats(svc taskService) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		c.JSON(http.StatusNotImplemented, gin.H{"error": "统计接口未实现"})
-	}
-}
