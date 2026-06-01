@@ -1,0 +1,19 @@
+server:
+  port: 8080
+  host: "0.0.0.0"
+
+database:
+  host: "localhost"
+  port: 5432
+  user: "mini-bk"
+  password: "mini-bk"
+  dbname: "mini-bk"
+  sslmode: "disable"
+
+scheduler:
+  tick_interval_ms: 500
+  max_concurrent_tasks: 10
+
+executor:
+  default_timeout_sec: 300
+  default_workdir: "/tmp"
