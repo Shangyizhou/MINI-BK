@@ -1,0 +1,104 @@
+package main
+
+import (
+	"context"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/gin-gonic/gin"
+
+	"github.com/shangyizhou/mini-bk/internal/api"
+	"github.com/shangyizhou/mini-bk/internal/config"
+	"github.com/shangyizhou/mini-bk/internal/executor"
+	"github.com/shangyizhou/mini-bk/internal/scheduler"
+	"github.com/shangyizhou/mini-bk/internal/service"
+	"github.com/shangyizhou/mini-bk/internal/store"
+)
+
+func main() {
+	// 初始化结构化日志
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	})))
+
+	// 加载配置
+	configPath := os.Getenv("CONFIG_PATH")
+	if configPath == "" {
+		configPath = "configs/config.yaml"
+	}
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		slog.Error("加载配置失败", "error", err)
+		os.Exit(1)
+	}
+
+	// 连接 PostgreSQL
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	pg, err := store.NewPostgres(ctx, cfg.Database.DSN())
+	if err != nil {
+		slog.Error("连接 PostgreSQL 失败", "error", err)
+		os.Exit(1)
+	}
+	defer pg.Close()
+
+	// 初始化各层
+	taskStore := store.NewTaskStore(pg)
+	taskSvc := service.NewTaskService(taskStore)
+	exec := executor.NewExecutor(cfg.Scheduler.MaxConcurrentTasks)
+
+	sched := scheduler.NewScheduler(
+		taskStore,
+		exec,
+		time.Duration(cfg.Scheduler.TickIntervalMs)*time.Millisecond,
+		cfg.Scheduler.MaxConcurrentTasks,
+	)
+
+	// 启动调度器
+	schedCtx, schedCancel := context.WithCancel(context.Background())
+	defer schedCancel()
+	go sched.Start(schedCtx)
+
+	// 设置 Gin
+	gin.SetMode(gin.ReleaseMode)
+	router := gin.New()
+	router.Use(gin.Logger(), gin.Recovery())
+	api.RegisterRoutes(router, taskSvc, sched)
+
+	// 启动 HTTP Server
+	srv := &http.Server{
+		Addr:    cfg.Server.Addr(),
+		Handler: router,
+	}
+
+	go func() {
+		slog.Info("服务启动中", "addr", cfg.Server.Addr())
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("服务错误", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	// 等待退出信号
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	sig := <-quit
+	slog.Info("收到信号，正在关闭", "signal", sig)
+
+	// 优雅关闭
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer shutdownCancel()
+
+	schedCancel() // 先停调度器
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		slog.Error("服务强制关闭", "error", err)
+	}
+
+	slog.Info("服务已退出")
+}
