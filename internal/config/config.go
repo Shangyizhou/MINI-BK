@@ -2,7 +2,9 @@ package config
 
 import (
     "fmt"
+    "log/slog"
     "os"
+    "strconv"
     "strings"
 
     "github.com/spf13/viper"
@@ -100,10 +102,62 @@ func Load(configPath string) (*Config, error) {
 
     // 环境变量手动覆盖（Viper 的 AutomaticEnv + Unmarshal 有已知限制）
     if port := os.Getenv("MINIBK_SERVER_PORT"); port != "" {
-        fmt.Sscanf(port, "%d", &cfg.Server.Port)
+        p, err := strconv.Atoi(port)
+        if err != nil {
+            slog.Warn("invalid MINIBK_SERVER_PORT, using default", "value", port, "error", err)
+        } else {
+            cfg.Server.Port = p
+        }
     }
     if host := os.Getenv("MINIBK_DATABASE_HOST"); host != "" {
         cfg.Database.Host = host
+    }
+    if port := os.Getenv("MINIBK_DATABASE_PORT"); port != "" {
+        p, err := strconv.Atoi(port)
+        if err != nil {
+            slog.Warn("invalid MINIBK_DATABASE_PORT, using default", "value", port, "error", err)
+        } else {
+            cfg.Database.Port = p
+        }
+    }
+    if user := os.Getenv("MINIBK_DATABASE_USER"); user != "" {
+        cfg.Database.User = user
+    }
+    if password := os.Getenv("MINIBK_DATABASE_PASSWORD"); password != "" {
+        cfg.Database.Password = password
+    }
+    if dbname := os.Getenv("MINIBK_DATABASE_DBNAME"); dbname != "" {
+        cfg.Database.DBName = dbname
+    }
+    if sslmode := os.Getenv("MINIBK_DATABASE_SSLMODE"); sslmode != "" {
+        cfg.Database.SSLMode = sslmode
+    }
+    if tick := os.Getenv("MINIBK_SCHEDULER_TICK_INTERVAL_MS"); tick != "" {
+        t, err := strconv.Atoi(tick)
+        if err != nil {
+            slog.Warn("invalid MINIBK_SCHEDULER_TICK_INTERVAL_MS, using default", "value", tick, "error", err)
+        } else {
+            cfg.Scheduler.TickIntervalMs = t
+        }
+    }
+    if max := os.Getenv("MINIBK_SCHEDULER_MAX_CONCURRENT_TASKS"); max != "" {
+        m, err := strconv.Atoi(max)
+        if err != nil {
+            slog.Warn("invalid MINIBK_SCHEDULER_MAX_CONCURRENT_TASKS, using default", "value", max, "error", err)
+        } else {
+            cfg.Scheduler.MaxConcurrentTasks = m
+        }
+    }
+    if timeout := os.Getenv("MINIBK_EXECUTOR_DEFAULT_TIMEOUT_SEC"); timeout != "" {
+        t, err := strconv.Atoi(timeout)
+        if err != nil {
+            slog.Warn("invalid MINIBK_EXECUTOR_DEFAULT_TIMEOUT_SEC, using default", "value", timeout, "error", err)
+        } else {
+            cfg.Executor.DefaultTimeoutSec = t
+        }
+    }
+    if workdir := os.Getenv("MINIBK_EXECUTOR_DEFAULT_WORKDIR"); workdir != "" {
+        cfg.Executor.DefaultWorkdir = workdir
     }
 
     return &cfg, nil

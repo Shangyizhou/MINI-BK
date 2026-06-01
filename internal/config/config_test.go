@@ -69,7 +69,9 @@ executor:
   default_timeout_sec: 300
   default_workdir: "/tmp"
 `
-    os.WriteFile(configPath, []byte(content), 0644)
+    if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+        t.Fatal(err)
+    }
     os.Setenv("MINIBK_SERVER_PORT", "7070")
     os.Setenv("MINIBK_DATABASE_HOST", "override-host")
     defer os.Unsetenv("MINIBK_SERVER_PORT")
