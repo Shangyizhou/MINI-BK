@@ -1,4 +1,4 @@
-.PHONY: build run test lint clean migrate-up migrate-down
+.PHONY: build run test test-integration lint clean migrate-up migrate-down dev
 
 APP_NAME = mini-bk-server
 BUILD_DIR = ./bin
