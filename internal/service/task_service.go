@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 
@@ -72,6 +73,18 @@ func (s *TaskService) CreateTask(ctx context.Context, req CreateTaskRequest) (*m
 	}
 	if req.Priority > 0 {
 		task.Priority = req.Priority
+	}
+
+	// 计算幂等键
+	task.SetIdempotencyKey()
+
+	// 通过 Redis SETNX 检查重复任务
+	if s.rdb != nil {
+		ok, err := s.rdb.SetNX(ctx, "tasks:dedup:"+task.IdempotencyKey, task.TaskUID, 5*time.Minute).Result()
+		if err == nil && !ok {
+			existingUID, _ := s.rdb.Get(ctx, "tasks:dedup:"+task.IdempotencyKey).Result()
+			return nil, fmt.Errorf("duplicate task: %s", existingUID)
+		}
 	}
 
 	if err := s.store.Create(ctx, task); err != nil {

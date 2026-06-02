@@ -77,6 +77,7 @@ func main() {
 		time.Duration(cfg.Scheduler.TickIntervalMs)*time.Millisecond,
 		cfg.Scheduler.MaxConcurrentTasks,
 		rdb,
+		nil, // 队列将在 Task 10 中添加
 	)
 
 	// 启动调度器

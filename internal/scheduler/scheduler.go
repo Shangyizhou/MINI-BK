@@ -12,6 +12,7 @@ import (
 
 	"github.com/shangyizhou/mini-bk/internal/executor"
 	"github.com/shangyizhou/mini-bk/internal/model"
+	"github.com/shangyizhou/mini-bk/internal/queue"
 )
 
 // TaskStore defines the interface for task persistence operations used by the scheduler.
@@ -27,6 +28,8 @@ type TaskExecutor interface {
 	Run(ctx context.Context, task *model.Task) *executor.TaskResult
 }
 
+const maxRetryDelay = 5 * time.Minute
+
 // Scheduler periodically checks for tasks to schedule and dispatches them
 // based on available resources.
 type Scheduler struct {
@@ -39,12 +42,13 @@ type Scheduler struct {
 	rdb           *redis.Client
 	cancelFuncs   map[string]context.CancelFunc // taskUID -> cancel
 	cancelMu      sync.Mutex
+	queue         queue.TaskQueue
 }
 
 // NewScheduler creates a new Scheduler with the given store, executor, tick interval,
 // and max concurrency. It detects total CPU via runtime.NumCPU() and defaults
 // totalMemMB to 8192.
-func NewScheduler(store TaskStore, exec TaskExecutor, tickInterval time.Duration, maxConcurrent int, rdb *redis.Client) *Scheduler {
+func NewScheduler(store TaskStore, exec TaskExecutor, tickInterval time.Duration, maxConcurrent int, rdb *redis.Client, q queue.TaskQueue) *Scheduler {
 	return &Scheduler{
 		store:         store,
 		executor:      exec,
@@ -54,6 +58,7 @@ func NewScheduler(store TaskStore, exec TaskExecutor, tickInterval time.Duration
 		totalMemMB:    8192,
 		rdb:           rdb,
 		cancelFuncs:   make(map[string]context.CancelFunc),
+		queue:         q,
 	}
 }
 
@@ -284,9 +289,40 @@ func (s *Scheduler) completeTask(ctx context.Context, task *model.Task, result *
 }
 
 // failTask transitions a task to the Failed status with an error message.
+// If the task supports retry and hasn't exhausted retries, it is re-enqueued.
 func (s *Scheduler) failTask(ctx context.Context, task *model.Task, errMsg string) {
 	task.ErrorMessage = errMsg
 
+	if task.CanRetry() {
+		task.RetryCount++
+		task.Status = model.TaskStatusPending
+		task.FinishedAt = nil
+
+		if err := s.store.Update(ctx, task); err != nil {
+			slog.Error("scheduler: failed to update task for retry", "error", err, "task_uid", task.TaskUID)
+			return
+		}
+
+		// 指数退避延迟并重新入队
+		if s.queue != nil {
+			delay := time.Duration(task.RetryIntervalSec) * time.Second * time.Duration(1<<task.RetryCount)
+			if delay > maxRetryDelay {
+				delay = maxRetryDelay
+			}
+			if err := s.queue.PushDelayed(ctx, task, delay); err != nil {
+				slog.Error("scheduler: failed to re-enqueue task for retry", "error", err, "task_uid", task.TaskUID)
+			}
+		}
+
+		slog.Info("scheduler: task scheduled for retry",
+			"task_uid", task.TaskUID,
+			"retry_count", task.RetryCount,
+			"max_retries", task.MaxRetries,
+		)
+		return
+	}
+
+	// Terminal failure
 	now := time.Now()
 	task.FinishedAt = &now
 

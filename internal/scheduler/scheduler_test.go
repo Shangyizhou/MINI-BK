@@ -67,7 +67,7 @@ func (m *mockExecutor) Run(ctx context.Context, task *model.Task) *executor.Task
 func TestScheduler_ScheduleCreatedTask(t *testing.T) {
 	store := &mockTaskStore{}
 	exec := &mockExecutor{}
-	sched := NewScheduler(store, exec, 500*time.Millisecond, 10, nil)
+	sched := NewScheduler(store, exec, 500*time.Millisecond, 10, nil, nil)
 
 	task := model.NewTask("test-schedule", "echo hello")
 	task.CPULimit = 1
@@ -89,7 +89,7 @@ func TestScheduler_ScheduleCreatedTask(t *testing.T) {
 func TestScheduler_ResourceInsufficient(t *testing.T) {
 	store := &mockTaskStore{}
 	exec := &mockExecutor{}
-	sched := NewScheduler(store, exec, 500*time.Millisecond, 10, nil)
+	sched := NewScheduler(store, exec, 500*time.Millisecond, 10, nil, nil)
 
 	task := model.NewTask("test-heavy", "echo hello")
 	task.CPULimit = 999
@@ -109,7 +109,7 @@ func TestScheduler_ResourceInsufficient(t *testing.T) {
 func TestScheduler_StartStop(t *testing.T) {
 	store := &mockTaskStore{}
 	exec := &mockExecutor{}
-	sched := NewScheduler(store, exec, 100*time.Millisecond, 10, nil)
+	sched := NewScheduler(store, exec, 100*time.Millisecond, 10, nil, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go sched.Start(ctx)
