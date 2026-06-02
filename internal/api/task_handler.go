@@ -2,11 +2,15 @@ package api
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/shangyizhou/mini-bk/internal/logstream"
 	"github.com/shangyizhou/mini-bk/internal/model"
 	"github.com/shangyizhou/mini-bk/internal/service"
 )
@@ -36,8 +40,8 @@ func createTask(svc taskService) gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusCreated, gin.H{
-			"task_uid":  task.TaskUID,
-			"status":    task.Status,
+			"task_uid":   task.TaskUID,
+			"status":     task.Status,
 			"created_at": task.CreatedAt,
 		})
 	}
@@ -151,3 +155,65 @@ func getTaskLog(svc taskService) gin.HandlerFunc {
 	}
 }
 
+// streamTaskLog 处理 GET /api/v1/tasks/:task_uid/log/stream SSE 实时推送日志。
+func streamTaskLog(svc taskService, logStream *logstream.LogStream) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		uid := c.Param("task_uid")
+
+		// 检查任务是否存在
+		_, err := svc.GetTask(c.Request.Context(), uid)
+		if err != nil {
+			if err == model.ErrTaskNotFound {
+				c.JSON(http.StatusNotFound, gin.H{"error": "任务未找到"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		// 设置 SSE 头
+		c.Writer.Header().Set("Content-Type", "text/event-stream")
+		c.Writer.Header().Set("Cache-Control", "no-cache")
+		c.Writer.Header().Set("Connection", "keep-alive")
+
+		lastID := "0"
+		ticker := time.NewTicker(200 * time.Millisecond)
+		defer ticker.Stop()
+
+		flusher, ok := c.Writer.(http.Flusher)
+		if !ok {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "streaming not supported"})
+			return
+		}
+
+		for {
+			select {
+			case <-c.Request.Context().Done():
+				return
+			case <-ticker.C:
+				entries, err := logStream.Read(c.Request.Context(), uid, lastID, 100)
+				if err != nil {
+					continue
+				}
+				for _, e := range entries {
+					data, err := json.Marshal(e)
+					if err != nil {
+						continue
+					}
+					fmt.Fprintf(c.Writer, "data: %s\n\n", data)
+					flusher.Flush()
+					lastID = e.ID
+				}
+
+				// 检查任务是否已处于终态
+				task, err := svc.GetTask(c.Request.Context(), uid)
+				if err == nil && task.Status.IsTerminal() && len(entries) == 0 {
+					// 发送完成事件并退出
+					fmt.Fprintf(c.Writer, "event: done\ndata: {}\n\n")
+					flusher.Flush()
+					return
+				}
+			}
+		}
+	}
+}

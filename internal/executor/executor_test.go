@@ -9,7 +9,7 @@ import (
 )
 
 func TestExecutor_RunSuccess(t *testing.T) {
-	exec := NewExecutor(10)
+	exec := NewExecutor(10, nil)
 
 	task := model.NewTask("test-success", "echo hello")
 	task.Workdir = "/tmp"
@@ -28,7 +28,7 @@ func TestExecutor_RunSuccess(t *testing.T) {
 }
 
 func TestExecutor_RunTimeout(t *testing.T) {
-	exec := NewExecutor(10)
+	exec := NewExecutor(10, nil)
 
 	task := model.NewTask("test-timeout", "sleep 10")
 	task.Workdir = "/tmp"
@@ -44,7 +44,7 @@ func TestExecutor_RunTimeout(t *testing.T) {
 }
 
 func TestExecutor_RunFailedCommand(t *testing.T) {
-	exec := NewExecutor(10)
+	exec := NewExecutor(10, nil)
 
 	task := model.NewTask("test-fail", "exit 42")
 	task.Workdir = "/tmp"
@@ -57,7 +57,7 @@ func TestExecutor_RunFailedCommand(t *testing.T) {
 }
 
 func TestExecutor_RunWithEnv(t *testing.T) {
-	exec := NewExecutor(10)
+	exec := NewExecutor(10, nil)
 
 	task := model.NewTask("test-env", "echo $MY_VAR")
 	task.Workdir = "/tmp"
@@ -74,7 +74,7 @@ func TestExecutor_RunWithEnv(t *testing.T) {
 }
 
 func TestExecutor_Cancel(t *testing.T) {
-	exec := NewExecutor(10)
+	exec := NewExecutor(10, nil)
 
 	task := model.NewTask("test-cancel", "sleep 60")
 	task.Workdir = "/tmp"
@@ -102,7 +102,7 @@ func TestExecutor_Cancel(t *testing.T) {
 
 func TestExecutor_ConcurrencyLimit(t *testing.T) {
 	maxConcurrent := 2
-	exec := NewExecutor(maxConcurrent)
+	exec := NewExecutor(maxConcurrent, nil)
 
 	started := make(chan struct{}, 5)
 

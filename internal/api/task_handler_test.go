@@ -63,7 +63,7 @@ func (m *mockTaskService) RerunTask(ctx context.Context, uid string) (*model.Tas
 func setupTestRouter(svc *mockTaskService) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	RegisterRoutes(r, svc, nil)
+	RegisterRoutes(r, svc, nil, nil)
 	return r
 }
 
