@@ -83,3 +83,86 @@ func TestTaskStatusString(t *testing.T) {
 		t.Errorf("TaskStatusRunning.String() = %s, expected running", TaskStatusRunning.String())
 	}
 }
+
+func TestNewTaskDefaults(t *testing.T) {
+	task := NewTask("test-retry", "echo hello")
+	if task.MaxRetries != 3 {
+		t.Errorf("MaxRetries = %d, expected 3", task.MaxRetries)
+	}
+	if task.RetryIntervalSec != 1 {
+		t.Errorf("RetryIntervalSec = %d, expected 1", task.RetryIntervalSec)
+	}
+	if task.RetryCount != 0 {
+		t.Errorf("RetryCount = %d, expected 0", task.RetryCount)
+	}
+}
+
+func TestSetIdempotencyKey(t *testing.T) {
+	task1 := NewTask("test", "echo hello")
+	task1.SetIdempotencyKey()
+	if task1.IdempotencyKey == "" {
+		t.Fatal("IdempotencyKey should not be empty")
+	}
+	if len(task1.IdempotencyKey) != 16 {
+		t.Errorf("IdempotencyKey length = %d, expected 16", len(task1.IdempotencyKey))
+	}
+
+	// 相同输入应生成相同 key
+	task2 := NewTask("test", "echo hello")
+	task2.SetIdempotencyKey()
+	if task1.IdempotencyKey != task2.IdempotencyKey {
+		t.Errorf("相同输入的 IdempotencyKey 应该相同: %s vs %s", task1.IdempotencyKey, task2.IdempotencyKey)
+	}
+
+	// 不同输入应生成不同 key
+	task3 := NewTask("test", "echo world")
+	task3.SetIdempotencyKey()
+	if task1.IdempotencyKey == task3.IdempotencyKey {
+		t.Errorf("不同输入的 IdempotencyKey 应该不同")
+	}
+}
+
+func TestSetIdempotencyKeyWithEnv(t *testing.T) {
+	task1 := NewTask("test", "echo hello")
+	task1.Env["KEY"] = "VALUE"
+	task1.SetIdempotencyKey()
+
+	task2 := NewTask("test", "echo hello")
+	task2.Env["KEY"] = "VALUE"
+	task2.SetIdempotencyKey()
+
+	if task1.IdempotencyKey != task2.IdempotencyKey {
+		t.Errorf("相同 env 的 IdempotencyKey 应该相同")
+	}
+
+	// env 不同导致 key 不同
+	task3 := NewTask("test", "echo hello")
+	task3.Env["KEY"] = "OTHER"
+	task3.SetIdempotencyKey()
+	if task1.IdempotencyKey == task3.IdempotencyKey {
+		t.Errorf("不同 env 的 IdempotencyKey 应该不同")
+	}
+}
+
+func TestCanRetry(t *testing.T) {
+	task := NewTask("test", "echo hello")
+	if !task.CanRetry() {
+		t.Error("新创建的 task 应该可以重试")
+	}
+
+	task.RetryCount = 3
+	if task.CanRetry() {
+		t.Error("RetryCount = MaxRetries 时不应该可以重试")
+	}
+
+	task.RetryCount = 2
+	if !task.CanRetry() {
+		t.Error("RetryCount < MaxRetries 时可以重试")
+	}
+
+	task.MaxRetries = 0
+	task.RetryCount = 0
+	if task.CanRetry() {
+		t.Error("MaxRetries = 0 时不应该可以重试")
+	}
+}

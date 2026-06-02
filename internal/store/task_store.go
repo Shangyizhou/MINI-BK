@@ -27,11 +27,12 @@ func (s *TaskStore) Create(ctx context.Context, task *model.Task) error {
 	}
 
 	err = s.pg.DB.QueryRowContext(ctx,
-		`INSERT INTO tasks (task_uid, name, command, workdir, env, cpu_limit, memory_limit, timeout_sec, priority, status, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		`INSERT INTO tasks (task_uid, name, command, workdir, env, cpu_limit, memory_limit, timeout_sec, priority, max_retries, retry_count, retry_interval_sec, idempotency_key, status, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 		 RETURNING id`,
 		task.TaskUID, task.Name, task.Command, task.Workdir, envJSON,
 		task.CPULimit, task.MemoryLimit, task.TimeoutSec, task.Priority,
+		task.MaxRetries, task.RetryCount, task.RetryIntervalSec, task.IdempotencyKey,
 		task.Status, task.CreatedAt, task.UpdatedAt,
 	).Scan(&task.ID)
 	return err
@@ -48,11 +49,13 @@ func (s *TaskStore) Update(ctx context.Context, task *model.Task) error {
 
 	_, err = s.pg.DB.ExecContext(ctx,
 		`UPDATE tasks SET name=$1, command=$2, workdir=$3, env=$4, cpu_limit=$5, memory_limit=$6,
-		 timeout_sec=$7, priority=$8, status=$9, exit_code=$10, stdout=$11, stderr=$12,
-		 error_message=$13, pid=$14, started_at=$15, finished_at=$16, updated_at=$17
-		 WHERE task_uid=$18`,
+		 timeout_sec=$7, priority=$8, max_retries=$9, retry_count=$10, retry_interval_sec=$11,
+		 idempotency_key=$12, status=$13, exit_code=$14, stdout=$15, stderr=$16,
+		 error_message=$17, pid=$18, started_at=$19, finished_at=$20, updated_at=$21
+		 WHERE task_uid=$22`,
 		task.Name, task.Command, task.Workdir, envJSON,
 		task.CPULimit, task.MemoryLimit, task.TimeoutSec, task.Priority,
+		task.MaxRetries, task.RetryCount, task.RetryIntervalSec, task.IdempotencyKey,
 		task.Status, task.ExitCode, task.Stdout, task.Stderr,
 		task.ErrorMessage, task.PID, task.StartedAt, task.FinishedAt,
 		task.UpdatedAt, task.TaskUID,
@@ -64,7 +67,8 @@ func (s *TaskStore) Update(ctx context.Context, task *model.Task) error {
 func (s *TaskStore) GetByUID(ctx context.Context, uid string) (*model.Task, error) {
 	row := s.pg.DB.QueryRowContext(ctx,
 		`SELECT id, task_uid, name, command, workdir, env, cpu_limit, memory_limit,
-		 timeout_sec, priority, status, exit_code, stdout, stderr, error_message,
+		 timeout_sec, priority, max_retries, retry_count, retry_interval_sec, idempotency_key,
+		 status, exit_code, stdout, stderr, error_message,
 		 pid, started_at, finished_at, created_at, updated_at
 		 FROM tasks WHERE task_uid=$1`, uid)
 	return scanTask(row)
@@ -90,14 +94,16 @@ func (s *TaskStore) List(ctx context.Context, status string, page, size int) ([]
 	if status == "" {
 		rows, err = s.pg.DB.QueryContext(ctx,
 			`SELECT id, task_uid, name, command, workdir, env, cpu_limit, memory_limit,
-			 timeout_sec, priority, status, exit_code, stdout, stderr, error_message,
+			 timeout_sec, priority, max_retries, retry_count, retry_interval_sec, idempotency_key,
+			 status, exit_code, stdout, stderr, error_message,
 			 pid, started_at, finished_at, created_at, updated_at
 			 FROM tasks ORDER BY priority DESC, created_at ASC LIMIT $1 OFFSET $2`,
 			size, offset)
 	} else {
 		rows, err = s.pg.DB.QueryContext(ctx,
 			`SELECT id, task_uid, name, command, workdir, env, cpu_limit, memory_limit,
-			 timeout_sec, priority, status, exit_code, stdout, stderr, error_message,
+			 timeout_sec, priority, max_retries, retry_count, retry_interval_sec, idempotency_key,
+			 status, exit_code, stdout, stderr, error_message,
 			 pid, started_at, finished_at, created_at, updated_at
 			 FROM tasks WHERE status=$1 ORDER BY priority DESC, created_at ASC LIMIT $2 OFFSET $3`,
 			status, size, offset)
@@ -126,7 +132,8 @@ func (s *TaskStore) List(ctx context.Context, status string, page, size int) ([]
 func (s *TaskStore) GetPendingTasks(ctx context.Context) ([]*model.Task, error) {
 	rows, err := s.pg.DB.QueryContext(ctx,
 		`SELECT id, task_uid, name, command, workdir, env, cpu_limit, memory_limit,
-		 timeout_sec, priority, status, exit_code, stdout, stderr, error_message,
+		 timeout_sec, priority, max_retries, retry_count, retry_interval_sec, idempotency_key,
+		 status, exit_code, stdout, stderr, error_message,
 		 pid, started_at, finished_at, created_at, updated_at
 		 FROM tasks WHERE status=$1 ORDER BY priority DESC, created_at ASC`,
 		model.TaskStatusPending)
@@ -154,7 +161,8 @@ func (s *TaskStore) GetPendingTasks(ctx context.Context) ([]*model.Task, error) 
 func (s *TaskStore) GetRunningTasks(ctx context.Context) ([]*model.Task, error) {
 	rows, err := s.pg.DB.QueryContext(ctx,
 		`SELECT id, task_uid, name, command, workdir, env, cpu_limit, memory_limit,
-		 timeout_sec, priority, status, exit_code, stdout, stderr, error_message,
+		 timeout_sec, priority, max_retries, retry_count, retry_interval_sec, idempotency_key,
+		 status, exit_code, stdout, stderr, error_message,
 		 pid, started_at, finished_at, created_at, updated_at
 		 FROM tasks WHERE status=$1 ORDER BY priority DESC, created_at ASC`,
 		model.TaskStatusRunning)
@@ -182,7 +190,8 @@ func (s *TaskStore) GetRunningTasks(ctx context.Context) ([]*model.Task, error) 
 func (s *TaskStore) GetCreatedTasks(ctx context.Context) ([]*model.Task, error) {
 	rows, err := s.pg.DB.QueryContext(ctx,
 		`SELECT id, task_uid, name, command, workdir, env, cpu_limit, memory_limit,
-		 timeout_sec, priority, status, exit_code, stdout, stderr, error_message,
+		 timeout_sec, priority, max_retries, retry_count, retry_interval_sec, idempotency_key,
+		 status, exit_code, stdout, stderr, error_message,
 		 pid, started_at, finished_at, created_at, updated_at
 		 FROM tasks WHERE status=$1 ORDER BY priority DESC, created_at ASC`,
 		model.TaskStatusCreated)
@@ -219,11 +228,14 @@ func scanTask(row scannable) (*model.Task, error) {
 	var exitCode, pid sql.NullInt64
 	var startedAt, finishedAt sql.NullTime
 	var stdout, stderr, errorMessage sql.NullString
+	var idempotencyKey sql.NullString
 
 	err := row.Scan(
 		&task.ID, &task.TaskUID, &task.Name, &task.Command, &task.Workdir,
 		&envJSON, &task.CPULimit, &task.MemoryLimit, &task.TimeoutSec,
-		&task.Priority, &task.Status,
+		&task.Priority, &task.MaxRetries, &task.RetryCount, &task.RetryIntervalSec,
+		&idempotencyKey,
+		&task.Status,
 		&exitCode, &stdout, &stderr, &errorMessage,
 		&pid, &startedAt, &finishedAt,
 		&task.CreatedAt, &task.UpdatedAt,
@@ -264,6 +276,9 @@ func scanTask(row scannable) (*model.Task, error) {
 	}
 	if errorMessage.Valid {
 		task.ErrorMessage = errorMessage.String
+	}
+	if idempotencyKey.Valid {
+		task.IdempotencyKey = idempotencyKey.String
 	}
 
 	return task, nil

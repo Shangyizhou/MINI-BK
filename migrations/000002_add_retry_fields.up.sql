@@ -1,0 +1,5 @@
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS max_retries INT DEFAULT 3;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS retry_count INT DEFAULT 0;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS retry_interval_sec INT DEFAULT 1;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(64);
+CREATE INDEX IF NOT EXISTS idx_tasks_idempotency ON tasks(idempotency_key);
