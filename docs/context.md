@@ -14,7 +14,7 @@
 | HTTP 框架 | Gin | ✅ |
 | 数据库 | PostgreSQL | ✅ |
 | 进程管理 | os/exec + goroutine + channel | ✅ |
-| 队列/缓存 | Redis | Phase 2 |
+| 队列/缓存 | Redis | ✅ |
 | 进程间通信 | gRPC + Protobuf | Phase 3 |
 | 一致性存储 | etcd | Phase 4 |
 | 前端 | React + Ant Design | Phase 3+ |
@@ -22,9 +22,19 @@
 
 ## 当前阶段
 
-**Phase 1 — 单机版资源任务平台** (已完成)
+**Phase 2 — Redis 队列版任务平台** (已完成)
 
-完成了最小闭环：提交任务 → 排队 → 调度 → 执行 → 查日志。
+在 Phase 1 基础上引入 Redis 队列持久化、幂等提交、实时日志流、接口限流和任务自动重试。
+
+### Phase 2 新增特性
+
+- **队列持久化**: Redis 作为默认任务队列，Redis 不可用时自动降级为内存队列
+- **幂等性**: 相同命令+工作目录+环境变量在 5 分钟内重复提交会被拒绝
+- **实时日志流**: SSE (Server-Sent Events) 端点推送任务执行日志
+- **接口限流**: 基于 Redis 的 IP 级别限流，默认 100 次/分钟
+- **任务自动重试**: 失败任务按指数退避策略自动重试（默认最多 3 次）
+- **延迟任务**: 支持基于队列的延迟入队
+- **每日统计**: 通过 Redis Hash 记录每日提交/成功/失败统计数据
 
 ## 架构分层
 
@@ -36,7 +46,10 @@ internal/
 ├── scheduler/       ← 调度器：资源感知 ticker 循环
 ├── executor/        ← 执行器：os/exec 进程管理
 ├── model/           ← 数据模型 + 状态机
-├── store/           ← 持久化层：PostgreSQL
+├── store/           ← 持久化层：PostgreSQL + Redis
+├── queue/           ← 任务队列：Redis 队列 / 内存队列（Phase 2）
+├── logstream/       ← 实时日志流：SSE + Redis Stream（Phase 2）
+├── middleware/       ← HTTP 中间件：接口限流（Phase 2）
 └── config/          ← 配置管理：Viper
 ```
 
@@ -56,12 +69,13 @@ HTTP POST /api/v1/tasks
 
 ## 存储职责
 
-| 数据类型 | PostgreSQL | 说明 |
-|----------|------------|------|
-| 任务记录 | ✅ 主 | 所有任务的历史事实 |
-| 执行日志 | ✅ | stdout/stderr 落库 |
-
-Phase 2+ 将引入 Redis（队列/缓存）和 etcd（控制面）。
+| 数据类型 | PostgreSQL | Redis | 说明 |
+|----------|------------|-------|------|
+| 任务记录 | ✅ 主 | | 所有任务的历史事实 |
+| 执行日志 | ✅ | ✅ 实时流 | stdout/stderr 落库 + Redis Stream 实时推送 |
+| 任务队列 | | ✅ 主 | 优先使用 Redis List/SortedSet，降级到 InMemQueue |
+| 幂等去重 | | ✅ | SETNX 5 分钟窗口 |
+| 每日统计 | | ✅ | Hash 记录每日提交/成功/失败 |
 
 ## 架构规则
 
@@ -93,15 +107,15 @@ Created → Pending → Running → Success/Failed/Canceled
 ```bash
 # 1. 静态检查 + 单元测试 + 编译（无需 PostgreSQL）
 go vet ./...
-go test ./internal/... -v -count=1   # store 包 SKIP（无 PG），其余 PASS
+go test ./internal/... -count=1      # Redis 相关测试 SKIP（无 Redis），其余 PASS
 go build ./cmd/server                # 编译成功，无输出
 ```
 
-### 完整验证（需要 Docker + PostgreSQL）
+### 完整验证（需要 Docker + PostgreSQL + Redis）
 
 按以下顺序执行，每一步附预期输出。
 
-**Step 1: 启动 PostgreSQL + 运行迁移**
+**Step 1: 启动 PostgreSQL + Redis + 运行迁移**
 
 ```bash
 ./scripts/setup-pg.sh
@@ -110,13 +124,12 @@ go build ./cmd/server                # 编译成功，无输出
 预期输出：
 ```
 === Setting up PostgreSQL ===
-Creating PostgreSQL container...
-Waiting for PostgreSQL to be ready...
-/var/run/postgresql:5432 - accepting connections
-Installing migrate CLI...
-Running migrations...
-1/u create_tasks (XXms)
+...
 PostgreSQL is ready!
+
+=== Setting up Redis ===
+...
+Redis is ready!
 ```
 
 **Step 2: 单元测试（含 store 包）**
@@ -125,7 +138,7 @@ PostgreSQL is ready!
 go test ./internal/... -v -count=1
 ```
 
-预期输出：7 个包全部 `ok`，store 包不再 SKIP。
+预期输出：10 个包全部 `ok`（Redis 相关测试不再 SKIP）。
 
 **Step 3: 启动服务**
 
@@ -136,11 +149,12 @@ go run ./cmd/server
 预期输出：
 ```json
 {"level":"INFO","msg":"已连接到 PostgreSQL"}
-{"level":"INFO","msg":"调度器已启动","total_cpu":N,"total_mem_mb":8192,...}
+{"level":"INFO","msg":"已连接到 Redis"}
+{"level":"INFO","msg":"调度器已启动",...}
 {"level":"INFO","msg":"服务启动中","addr":"0.0.0.0:8080"}
 ```
 
-**Step 4: 手动验证 API（另开终端）**
+**Step 4: 手动验证 Phase 1 API（另开终端）**
 
 ```bash
 # 创建任务
@@ -167,7 +181,57 @@ curl -s http://localhost:8080/api/v1/stats
 # → {"total_tasks":1,"success":1,"failed":0,"running":0,"success_rate":1}
 ```
 
-**Step 5: 取消任务**
+**Step 5: Phase 2 — 幂等性验证**
+
+```bash
+# 相同命令和目录提交两次，第二次应被拒绝
+curl -s -X POST http://localhost:8080/api/v1/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"name":"idempotent","command":"echo same","workdir":"/tmp"}'
+# → 201 Created
+
+curl -s -X POST http://localhost:8080/api/v1/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"name":"idempotent","command":"echo same","workdir":"/tmp"}'
+# → 409 Conflict 或 500，错误消息含 "duplicate"
+```
+
+**Step 6: Phase 2 — 实时日志流 (SSE)**
+
+```bash
+# 创建任务，然后连接 SSE 端点
+curl -s -X POST http://localhost:8080/api/v1/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"name":"sse","command":"echo sse-stream"}'
+# → {"task_uid":"xxx-xxx",...}
+
+curl -N http://localhost:8080/api/v1/tasks/xxx-xxx/log/stream
+# → data: {"line":"sse-stream","stream":"stdout",...}
+# → event: done
+```
+
+**Step 7: Phase 2 — 重试验证**
+
+```bash
+# 提交会失败的任务，观察自动重试
+curl -s -X POST http://localhost:8080/api/v1/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"name":"retry","command":"exit 1"}'
+# → 201 Created
+
+# 稍后查询，检查 retry_count 字段
+curl -s http://localhost:8080/api/v1/tasks/<task_uid>
+# → {"retry_count":N,"max_retries":3,"status":"failed",...}
+```
+
+**Step 8: Phase 2 — 每日统计**
+
+```bash
+curl -s http://localhost:8080/api/v1/stats/daily
+# → {"submitted":"1","success":"1","failed":"0"}
+```
+
+**Step 9: 取消任务**
 
 ```bash
 curl -s -X POST http://localhost:8080/api/v1/tasks \
@@ -179,7 +243,7 @@ curl -s -X POST http://localhost:8080/api/v1/tasks/yyy-yyy/cancel
 # → {"message":"任务已取消"}
 ```
 
-**Step 6: 超时任务**
+**Step 10: 超时任务**
 
 ```bash
 curl -s -X POST http://localhost:8080/api/v1/tasks \

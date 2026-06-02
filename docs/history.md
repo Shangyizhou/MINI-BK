@@ -75,3 +75,85 @@
 ### 发布
 
 - Tag: v0.1.0
+
+---
+
+## 2026-06-03 — Phase 2 Redis 队列版任务平台
+
+### Redis 集成
+
+- Redis 连接封装：`store.NewRedis()`，支持地址/密码/DB 配置
+- Redis 连接失败时优雅降级，不影响核心功能
+- 配置项扩展：Redis（addr/password/db）、Retry（max_attempts/initial_interval_sec/max_interval_sec/multiplier）、RateLimit（enabled/requests_per_minute）
+
+### 任务队列 (queue)
+
+- `queue.TaskQueue` 接口抽象：Push / Pop / PushPriority / PushDelayed / Ack / Size / Close
+- `queue.InMemQueue`：基于 `container/heap` 的优先级队列 + `sync.Cond` 阻塞 Pop
+- InMemQueue 支持延迟队列（最小堆按时间排序）
+- `queue.RedisQueue`：基于 Redis List / SortedSet / Stream
+- RedisQueue 支持延迟任务（ZSet 按分数轮询）
+- 自动选择：Redis 可用用 RedisQueue，否则用 InMemQueue
+
+### 实时日志流 (logstream)
+
+- `logstream.LogStream` 基于 Redis Stream 实现
+- `Append()` 写入日志行（MaxLen 10000）
+- `Read()` 从指定 ID 开始读取，支持阻塞等待
+- Executor 中实时流式输出 stdout/stderr 到 Redis Stream
+- SSE 端点 `GET /api/v1/tasks/:task_uid/log/stream` 推送实时日志
+
+### 接口限流 (middleware)
+
+- `middleware.RateLimit` 基于 Redis INCR + TTL，IP 级别限流
+- 配置项 `rate_limit.enabled` 开关，`rate_limit.requests_per_minute` 阈值
+- 自动注入 X-RateLimit-Limit / X-RateLimit-Remaining / X-RateLimit-Reset / Retry-After 响应头
+- Redis 错误时自动放行，不阻塞业务
+- 禁用时零开销（直接 c.Next()）
+
+### 幂等性
+
+- Task 模型增加 `IdempotencyKey` 字段（SHA256 命令+工作目录+环境变量 → 16 位 hex）
+- 通过 Redis SETNX 5 分钟窗口检查重复
+- 重复提交返回错误消息 "duplicate task: <existing_uid>"
+
+### 任务重试
+
+- Task 模型增加 `MaxRetries` / `RetryCount` / `RetryIntervalSec` 字段
+- `CanRetry()` 判断是否可重试（RetryCount < MaxRetries）
+- 失败任务自动重试：状态回退 Pending，清除 FinishedAt
+- 指数退避延迟：`delay = RetryIntervalSec * 2^RetryCount`（上限 5 分钟）
+- 超过最大重试次数后标记为 Failed
+
+### 每日统计
+
+- Redis Hash `stats:daily:<YYYY-MM-DD>` 记录 submitted/success/failed
+- CreateTask 时 HIncrBy submitted
+- 任务成功/失败时分别更新 success/failed
+- `GET /api/v1/stats/daily` 查询指定日期的统计
+- `GET /api/v1/stats` 合并展示当日统计
+
+### 主入口增强 (main.go)
+
+- 连接 Redis（优雅降级）
+- 创建任务队列（Redis → InMem 自动选择）
+- 注入限流中间件
+- 完整的错误处理和优雅关闭
+
+### 部署
+
+- `deployments/docker-compose.yml`：PostgreSQL 16 + Redis 7 + Server
+- `scripts/setup-pg.sh` 扩展：同时启动 Redis 容器
+- 环境变量支持：`MINIBK_REDIS_ADDR` 等
+
+### 集成测试
+
+- `TestIdempotency`：幂等性验证
+- `TestTaskRetry`：任务重试验证
+- `TestSSELogStream`：SSE 日志流验证
+- `TestRateLimit`：限流验证
+- `TestDelayedTask`：延迟任务验证
+
+### 发布
+
+- Tag: v0.2.0
