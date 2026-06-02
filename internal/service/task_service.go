@@ -90,6 +90,12 @@ func (s *TaskService) CreateTask(ctx context.Context, req CreateTaskRequest) (*m
 	if err := s.store.Create(ctx, task); err != nil {
 		return nil, err
 	}
+
+	// 更新每日统计
+	if s.rdb != nil {
+		s.rdb.HIncrBy(ctx, "stats:daily:"+time.Now().Format("2006-01-02"), "submitted", 1)
+	}
+
 	return task, nil
 }
 

@@ -2,8 +2,11 @@ package api
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
+
 	"github.com/shangyizhou/mini-bk/internal/model"
 )
 
@@ -31,7 +34,7 @@ func getResources(rp resourceProvider) gin.HandlerFunc {
 	}
 }
 
-func getStats(svc taskService) gin.HandlerFunc {
+func getStats(svc taskService, rdb *redis.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx := c.Request.Context()
 		result, err := svc.ListTasks(ctx, "", 1, 1000)
@@ -53,14 +56,38 @@ func getStats(svc taskService) gin.HandlerFunc {
 			}
 		}
 
-		c.JSON(http.StatusOK, gin.H{
+		resp := gin.H{
 			"total_tasks":  result.Total,
 			"submitted":    submitted,
 			"success":      success,
 			"failed":       failed,
 			"running":      running,
 			"success_rate": safeDiv(success, submitted),
-		})
+		}
+
+		// 合并 Redis 每日统计
+		if rdb != nil {
+			today := time.Now().Format("2006-01-02")
+			dailyStats := rdb.HGetAll(ctx, "stats:daily:"+today).Val()
+			if len(dailyStats) > 0 {
+				resp["daily"] = dailyStats
+			}
+		}
+
+		c.JSON(http.StatusOK, resp)
+	}
+}
+
+// getDailyStats 返回指定日期的每日统计。
+func getDailyStats(rdb *redis.Client) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if rdb == nil {
+			c.JSON(http.StatusOK, gin.H{})
+			return
+		}
+		date := c.DefaultQuery("date", time.Now().Format("2006-01-02"))
+		stats := rdb.HGetAll(c.Request.Context(), "stats:daily:"+date).Val()
+		c.JSON(http.StatusOK, stats)
 	}
 }
 

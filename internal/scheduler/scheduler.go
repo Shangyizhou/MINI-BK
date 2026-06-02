@@ -286,6 +286,11 @@ func (s *Scheduler) completeTask(ctx context.Context, task *model.Task, result *
 	if err := s.store.Update(ctx, task); err != nil {
 		slog.Error("scheduler: failed to update task on success", "error", err, "task_uid", task.TaskUID)
 	}
+
+	// 更新每日成功统计
+	if s.rdb != nil {
+		s.rdb.HIncrBy(ctx, "stats:daily:"+time.Now().Format("2006-01-02"), "success", 1)
+	}
 }
 
 // failTask transitions a task to the Failed status with an error message.
@@ -333,6 +338,11 @@ func (s *Scheduler) failTask(ctx context.Context, task *model.Task, errMsg strin
 
 	if err := s.store.Update(ctx, task); err != nil {
 		slog.Error("scheduler: failed to update task on failure", "error", err, "task_uid", task.TaskUID)
+	}
+
+	// 更新每日失败统计
+	if s.rdb != nil {
+		s.rdb.HIncrBy(ctx, "stats:daily:"+time.Now().Format("2006-01-02"), "failed", 1)
 	}
 }
 
