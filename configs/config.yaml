@@ -10,6 +10,11 @@ database:
   dbname: "mini-bk"
   sslmode: "disable"
 
+redis:
+  addr: "localhost:6379"
+  password: ""
+  db: 0
+
 scheduler:
   tick_interval_ms: 500
   max_concurrent_tasks: 10
@@ -17,3 +22,13 @@ scheduler:
 executor:
   default_timeout_sec: 300
   default_workdir: "/tmp"
+
+retry:
+  max_attempts: 3
+  initial_interval_sec: 1
+  max_interval_sec: 60
+  multiplier: 2
+
+rate_limit:
+  enabled: true
+  requests_per_minute: 100

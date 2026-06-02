@@ -14,8 +14,32 @@ import (
 type Config struct {
     Server    ServerConfig    `mapstructure:"server"`
     Database  DatabaseConfig  `mapstructure:"database"`
+    Redis     RedisConfig     `mapstructure:"redis"`
     Scheduler SchedulerConfig `mapstructure:"scheduler"`
     Executor  ExecutorConfig  `mapstructure:"executor"`
+    Retry     RetryConfig     `mapstructure:"retry"`
+    RateLimit RateLimitConfig `mapstructure:"rate_limit"`
+}
+
+// RedisConfig Redis 连接配置。
+type RedisConfig struct {
+    Addr     string `mapstructure:"addr"`
+    Password string `mapstructure:"password"`
+    DB       int    `mapstructure:"db"`
+}
+
+// RetryConfig 重试策略配置。
+type RetryConfig struct {
+    MaxAttempts        int `mapstructure:"max_attempts"`
+    InitialIntervalSec int `mapstructure:"initial_interval_sec"`
+    MaxIntervalSec     int `mapstructure:"max_interval_sec"`
+    Multiplier         int `mapstructure:"multiplier"`
+}
+
+// RateLimitConfig 限流配置。
+type RateLimitConfig struct {
+    Enabled           bool `mapstructure:"enabled"`
+    RequestsPerMinute int  `mapstructure:"requests_per_minute"`
 }
 
 // ServerConfig HTTP 服务配置。
@@ -83,10 +107,19 @@ func Load(configPath string) (*Config, error) {
     v.SetDefault("database.host", "localhost")
     v.SetDefault("database.port", 5432)
     v.SetDefault("database.sslmode", "disable")
+    v.SetDefault("redis.addr", "localhost:6379")
+    v.SetDefault("redis.password", "")
+    v.SetDefault("redis.db", 0)
     v.SetDefault("scheduler.tick_interval_ms", 500)
     v.SetDefault("scheduler.max_concurrent_tasks", 10)
     v.SetDefault("executor.default_timeout_sec", 300)
     v.SetDefault("executor.default_workdir", "/tmp")
+    v.SetDefault("retry.max_attempts", 3)
+    v.SetDefault("retry.initial_interval_sec", 1)
+    v.SetDefault("retry.max_interval_sec", 60)
+    v.SetDefault("retry.multiplier", 2)
+    v.SetDefault("rate_limit.enabled", true)
+    v.SetDefault("rate_limit.requests_per_minute", 100)
 
     if err := v.ReadInConfig(); err != nil {
         if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
