@@ -64,7 +64,7 @@ func (m *mockStore) GetRunningTasks(ctx context.Context) ([]*model.Task, error) 
 }
 
 func TestTaskService_CreateTask(t *testing.T) {
-	svc := NewTaskService(newMockStore(), nil)
+	svc := NewTaskService(newMockStore(), nil, nil)
 
 	req := CreateTaskRequest{
 		Name:        "test-task",
@@ -92,7 +92,7 @@ func TestTaskService_CreateTask(t *testing.T) {
 }
 
 func TestTaskService_GetTask(t *testing.T) {
-	svc := NewTaskService(newMockStore(), nil)
+	svc := NewTaskService(newMockStore(), nil, nil)
 
 	task, _ := svc.CreateTask(context.Background(), CreateTaskRequest{
 		Name:    "test-get",
@@ -109,7 +109,7 @@ func TestTaskService_GetTask(t *testing.T) {
 }
 
 func TestTaskService_GetTaskNotFound(t *testing.T) {
-	svc := NewTaskService(newMockStore(), nil)
+	svc := NewTaskService(newMockStore(), nil, nil)
 	_, err := svc.GetTask(context.Background(), "nonexistent")
 	if err == nil {
 		t.Error("GetTask() 应对不存在的任务返回错误")
@@ -118,7 +118,7 @@ func TestTaskService_GetTaskNotFound(t *testing.T) {
 
 func TestTaskService_CancelTask(t *testing.T) {
 	store := newMockStore()
-	svc := NewTaskService(store, nil)
+	svc := NewTaskService(store, nil, nil)
 	task, _ := svc.CreateTask(context.Background(), CreateTaskRequest{
 		Name:    "test-cancel",
 		Command: "sleep 100",
@@ -139,7 +139,7 @@ func TestTaskService_CancelTask(t *testing.T) {
 }
 
 func TestTaskService_RerunTask(t *testing.T) {
-	svc := NewTaskService(newMockStore(), nil)
+	svc := NewTaskService(newMockStore(), nil, nil)
 
 	task, _ := svc.CreateTask(context.Background(), CreateTaskRequest{
 		Name:    "test-rerun",
@@ -162,7 +162,7 @@ func TestTaskService_RerunTask(t *testing.T) {
 }
 
 func TestTaskService_ListTasks(t *testing.T) {
-	svc := NewTaskService(newMockStore(), nil)
+	svc := NewTaskService(newMockStore(), nil, nil)
 
 	for i := 0; i < 5; i++ {
 		svc.CreateTask(context.Background(), CreateTaskRequest{

@@ -149,46 +149,21 @@ func (s *Scheduler) tick(ctx context.Context) {
 		return
 	}
 
-	// Try to dispatch pending tasks first, then created tasks
-	pendingTasks, err := s.store.GetPendingTasks(ctx)
-	if err != nil {
-		slog.Error("scheduler: failed to get pending tasks", "error", err)
-		return
-	}
-
-	for _, task := range pendingTasks {
-		if availableSlots <= 0 {
-			break
+	// Pop tasks from queue and dispatch
+	for availableSlots > 0 {
+		task, err := s.queue.Pop(ctx, 100*time.Millisecond)
+		if err != nil || task == nil {
+			break // queue empty or timeout
 		}
-		if s.canAllocate(task, availableCPU, availableMem) {
-			s.dispatch(ctx, task)
-			availableCPU -= task.CPULimit
-			availableMem -= task.MemoryLimit
-			availableSlots--
-		}
-	}
 
-	// Try created tasks
-	createdTasks, err := s.store.GetCreatedTasks(ctx)
-	if err != nil {
-		slog.Error("scheduler: failed to get created tasks", "error", err)
-		return
-	}
-
-	for _, task := range createdTasks {
-		if availableSlots <= 0 {
-			break
-		}
 		if s.canAllocate(task, availableCPU, availableMem) {
 			s.dispatch(ctx, task)
 			availableCPU -= task.CPULimit
 			availableMem -= task.MemoryLimit
 			availableSlots--
 		} else {
-			// Not enough resources, transition to pending
-			if err := task.TransitionTo(model.TaskStatusPending); err == nil {
-				_ = s.store.Update(ctx, task)
-			}
+			// Not enough resources, push back with short delay
+			_ = s.queue.PushDelayed(ctx, task, 1*time.Second)
 		}
 	}
 }

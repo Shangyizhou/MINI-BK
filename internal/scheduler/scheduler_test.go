@@ -8,6 +8,7 @@ import (
 
 	"github.com/shangyizhou/mini-bk/internal/executor"
 	"github.com/shangyizhou/mini-bk/internal/model"
+	"github.com/shangyizhou/mini-bk/internal/queue"
 )
 
 // mockTaskStore 实现调度器所需的 store 接口
@@ -67,49 +68,54 @@ func (m *mockExecutor) Run(ctx context.Context, task *model.Task) *executor.Task
 func TestScheduler_ScheduleCreatedTask(t *testing.T) {
 	store := &mockTaskStore{}
 	exec := &mockExecutor{}
-	sched := NewScheduler(store, exec, 500*time.Millisecond, 10, nil, nil)
+	q := queue.NewInMemQueue(10)
+	defer q.Close()
+	sched := NewScheduler(store, exec, 500*time.Millisecond, 10, nil, q)
 
 	task := model.NewTask("test-schedule", "echo hello")
 	task.CPULimit = 1
 	task.MemoryLimit = 128
-	store.created = append(store.created, task)
+	if err := q.Push(context.Background(), task); err != nil {
+		t.Fatalf("Push() error = %v", err)
+	}
 
 	sched.tick(context.Background())
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	if len(store.created) > 0 {
-		t.Errorf("预期 0 个 created 任务，实际 %d", len(store.created))
-	}
 	if store.updateCalled == 0 {
-		t.Error("预期 Update() 被调用")
+		t.Error("预期 Update() 被调用（调度器应分发任务）")
 	}
 }
 
 func TestScheduler_ResourceInsufficient(t *testing.T) {
 	store := &mockTaskStore{}
 	exec := &mockExecutor{}
-	sched := NewScheduler(store, exec, 500*time.Millisecond, 10, nil, nil)
+	q := queue.NewInMemQueue(10)
+	defer q.Close()
+	sched := NewScheduler(store, exec, 500*time.Millisecond, 10, nil, q)
 
 	task := model.NewTask("test-heavy", "echo hello")
 	task.CPULimit = 999
 	task.MemoryLimit = 999999
-	task.Status = model.TaskStatusCreated
-	store.created = append(store.created, task)
+	if err := q.Push(context.Background(), task); err != nil {
+		t.Fatalf("Push() error = %v", err)
+	}
 
 	sched.tick(context.Background())
 
-	store.mu.Lock()
-	defer store.mu.Unlock()
-	if task.Status != model.TaskStatusPending {
-		t.Errorf("Status = %s, 期望 pending（资源不足）", task.Status)
+	// 资源不足时任务应被延迟重新入队，状态保持不变
+	if task.Status != model.TaskStatusCreated {
+		t.Errorf("Status = %s, 期望 created（资源不足时状态不应改变）", task.Status)
 	}
 }
 
 func TestScheduler_StartStop(t *testing.T) {
 	store := &mockTaskStore{}
 	exec := &mockExecutor{}
-	sched := NewScheduler(store, exec, 100*time.Millisecond, 10, nil, nil)
+	q := queue.NewInMemQueue(10)
+	defer q.Close()
+	sched := NewScheduler(store, exec, 100*time.Millisecond, 10, nil, q)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go sched.Start(ctx)

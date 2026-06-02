@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 
 	"github.com/shangyizhou/mini-bk/internal/model"
+	"github.com/shangyizhou/mini-bk/internal/queue"
 )
 
 // TaskStore 定义任务存储接口。
@@ -44,11 +46,12 @@ type TaskListResult struct {
 type TaskService struct {
 	store TaskStore
 	rdb   *redis.Client
+	queue queue.TaskQueue
 }
 
 // NewTaskService 创建 TaskService 实例。
-func NewTaskService(store TaskStore, rdb *redis.Client) *TaskService {
-	return &TaskService{store: store, rdb: rdb}
+func NewTaskService(store TaskStore, rdb *redis.Client, q queue.TaskQueue) *TaskService {
+	return &TaskService{store: store, rdb: rdb, queue: q}
 }
 
 // CreateTask 创建一个新任务。
@@ -94,6 +97,19 @@ func (s *TaskService) CreateTask(ctx context.Context, req CreateTaskRequest) (*m
 	// 更新每日统计
 	if s.rdb != nil {
 		s.rdb.HIncrBy(ctx, "stats:daily:"+time.Now().Format("2006-01-02"), "submitted", 1)
+	}
+
+	// 推入任务队列
+	if s.queue != nil {
+		if task.Priority > 0 {
+			if err := s.queue.PushPriority(ctx, task); err != nil {
+				slog.Warn("task_service: failed to push task to priority queue", "error", err, "task_uid", task.TaskUID)
+			}
+		} else {
+			if err := s.queue.Push(ctx, task); err != nil {
+				slog.Warn("task_service: failed to push task to queue", "error", err, "task_uid", task.TaskUID)
+			}
+		}
 	}
 
 	return task, nil
