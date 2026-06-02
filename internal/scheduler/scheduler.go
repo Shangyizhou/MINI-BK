@@ -4,7 +4,11 @@ import (
 	"context"
 	"log/slog"
 	"runtime"
+	"strings"
+	"sync"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 
 	"github.com/shangyizhou/mini-bk/internal/executor"
 	"github.com/shangyizhou/mini-bk/internal/model"
@@ -32,12 +36,15 @@ type Scheduler struct {
 	maxConcurrent int
 	totalCPU      int
 	totalMemMB    int
+	rdb           *redis.Client
+	cancelFuncs   map[string]context.CancelFunc // taskUID -> cancel
+	cancelMu      sync.Mutex
 }
 
 // NewScheduler creates a new Scheduler with the given store, executor, tick interval,
 // and max concurrency. It detects total CPU via runtime.NumCPU() and defaults
 // totalMemMB to 8192.
-func NewScheduler(store TaskStore, exec TaskExecutor, tickInterval time.Duration, maxConcurrent int) *Scheduler {
+func NewScheduler(store TaskStore, exec TaskExecutor, tickInterval time.Duration, maxConcurrent int, rdb *redis.Client) *Scheduler {
 	return &Scheduler{
 		store:         store,
 		executor:      exec,
@@ -45,11 +52,50 @@ func NewScheduler(store TaskStore, exec TaskExecutor, tickInterval time.Duration
 		maxConcurrent: maxConcurrent,
 		totalCPU:      runtime.NumCPU(),
 		totalMemMB:    8192,
+		rdb:           rdb,
+		cancelFuncs:   make(map[string]context.CancelFunc),
 	}
 }
 
-// Start starts the scheduler's tick loop. It runs until the context is cancelled.
+// Start starts the scheduler's tick loop and listens for task cancellation
+// via Redis Pub/Sub. It runs until the context is cancelled.
 func (s *Scheduler) Start(ctx context.Context) {
+	// Start Redis Pub/Sub listener for task cancellation
+	if s.rdb != nil {
+		go func() {
+			pubsub := s.rdb.PSubscribe(ctx, "tasks:cancel:*")
+			defer pubsub.Close()
+
+			// Wait for subscription to be ready
+			_, err := pubsub.Receive(ctx)
+			if err != nil {
+				slog.Error("scheduler: failed to subscribe to cancel channel", "error", err)
+				return
+			}
+
+			slog.Info("scheduler: listening for task cancellation via Redis Pub/Sub")
+			ch := pubsub.Channel()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case msg, ok := <-ch:
+					if !ok {
+						return
+					}
+					taskUID := strings.TrimPrefix(msg.Channel, "tasks:cancel:")
+					s.cancelMu.Lock()
+					if cancel, ok := s.cancelFuncs[taskUID]; ok {
+						slog.Info("scheduler: cancelling task via Pub/Sub", "task_uid", taskUID)
+						cancel()
+						delete(s.cancelFuncs, taskUID)
+					}
+					s.cancelMu.Unlock()
+				}
+			}
+		}()
+	}
+
 	ticker := time.NewTicker(s.tickInterval)
 	defer ticker.Stop()
 
@@ -189,8 +235,19 @@ func (s *Scheduler) dispatch(ctx context.Context, task *model.Task) {
 		"memory_limit", task.MemoryLimit,
 	)
 
+	// Create cancellable context for this task
+	taskCtx, taskCancel := context.WithCancel(ctx)
+	s.cancelMu.Lock()
+	s.cancelFuncs[task.TaskUID] = taskCancel
+	s.cancelMu.Unlock()
+
 	go func(t *model.Task) {
-		result := s.executor.Run(ctx, t)
+		defer func() {
+			s.cancelMu.Lock()
+			delete(s.cancelFuncs, t.TaskUID)
+			s.cancelMu.Unlock()
+		}()
+		result := s.executor.Run(taskCtx, t)
 		s.completeTask(ctx, t, result)
 	}(task)
 }

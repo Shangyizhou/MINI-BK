@@ -3,6 +3,9 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
+
+	"github.com/redis/go-redis/v9"
 
 	"github.com/shangyizhou/mini-bk/internal/model"
 )
@@ -39,11 +42,12 @@ type TaskListResult struct {
 // TaskService 提供任务的业务逻辑操作。
 type TaskService struct {
 	store TaskStore
+	rdb   *redis.Client
 }
 
 // NewTaskService 创建 TaskService 实例。
-func NewTaskService(store TaskStore) *TaskService {
-	return &TaskService{store: store}
+func NewTaskService(store TaskStore, rdb *redis.Client) *TaskService {
+	return &TaskService{store: store, rdb: rdb}
 }
 
 // CreateTask 创建一个新任务。
@@ -118,7 +122,18 @@ func (s *TaskService) CancelTask(ctx context.Context, uid string) error {
 		return err
 	}
 
-	return s.store.Update(ctx, task)
+	if err := s.store.Update(ctx, task); err != nil {
+		return err
+	}
+
+	// 通过 Redis Pub/Sub 通知调度器取消任务
+	if s.rdb != nil {
+		if err := s.rdb.Publish(ctx, "tasks:cancel:"+uid, "canceled").Err(); err != nil {
+			return fmt.Errorf("publish cancel event: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // RerunTask 基于已有任务创建一个新任务（重跑）。

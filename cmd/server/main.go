@@ -11,6 +11,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/redis/go-redis/v9"
+
 	"github.com/shangyizhou/mini-bk/internal/api"
 	"github.com/shangyizhou/mini-bk/internal/config"
 	"github.com/shangyizhou/mini-bk/internal/executor"
@@ -50,12 +52,14 @@ func main() {
 
 	// 连接 Redis（可选用于日志流、队列等）
 	var logStream *logstream.LogStream
+	var rdb *redis.Client
 	if cfg.Redis.Addr != "" {
 		redisClient, err := store.NewRedis(ctx, cfg.Redis.Addr, cfg.Redis.Password, cfg.Redis.DB)
 		if err != nil {
 			slog.Warn("连接 Redis 失败，日志流功能不可用", "error", err)
 		} else {
-			logStream = logstream.NewLogStream(redisClient.Client)
+			rdb = redisClient.Client
+			logStream = logstream.NewLogStream(rdb)
 			defer redisClient.Close()
 		}
 	} else {
@@ -64,7 +68,7 @@ func main() {
 
 	// 初始化各层
 	taskStore := store.NewTaskStore(pg)
-	taskSvc := service.NewTaskService(taskStore)
+	taskSvc := service.NewTaskService(taskStore, rdb)
 	exec := executor.NewExecutor(cfg.Scheduler.MaxConcurrentTasks, logStream)
 
 	sched := scheduler.NewScheduler(
@@ -72,6 +76,7 @@ func main() {
 		exec,
 		time.Duration(cfg.Scheduler.TickIntervalMs)*time.Millisecond,
 		cfg.Scheduler.MaxConcurrentTasks,
+		rdb,
 	)
 
 	// 启动调度器
