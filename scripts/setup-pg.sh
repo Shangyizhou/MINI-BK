@@ -28,3 +28,20 @@ echo "Running migrations..."
 "$HOME/go/bin/migrate" -path migrations -database "postgres://mini-bk:mini-bk@localhost:5432/mini-bk?sslmode=disable" up
 
 echo "PostgreSQL is ready!"
+
+echo ""
+echo "=== Setting up Redis ==="
+if docker ps -a --format '{{.Names}}' | grep -q '^mini-bk-redis$'; then
+    echo "Removing old Redis container..."
+    docker rm -f mini-bk-redis
+fi
+
+echo "Creating Redis container..."
+docker run -d --name mini-bk-redis -p 6379:6379 redis:7-alpine
+
+echo "Waiting for Redis to be ready..."
+until docker exec mini-bk-redis redis-cli ping 2>/dev/null | grep -q 'PONG'; do
+    sleep 1
+done
+
+echo "Redis is ready!"

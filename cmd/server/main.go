@@ -17,6 +17,7 @@ import (
 	"github.com/shangyizhou/mini-bk/internal/config"
 	"github.com/shangyizhou/mini-bk/internal/executor"
 	"github.com/shangyizhou/mini-bk/internal/logstream"
+	"github.com/shangyizhou/mini-bk/internal/middleware"
 	"github.com/shangyizhou/mini-bk/internal/queue"
 	"github.com/shangyizhou/mini-bk/internal/scheduler"
 	"github.com/shangyizhou/mini-bk/internal/service"
@@ -100,6 +101,7 @@ func main() {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery())
+	router.Use(middleware.RateLimit(rdb, cfg.RateLimit.Enabled, cfg.RateLimit.RequestsPerMinute))
 	api.RegisterRoutes(router, taskSvc, sched, logStream, rdb)
 
 	// 启动 HTTP Server
