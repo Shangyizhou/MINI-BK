@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -52,6 +53,28 @@ func (m *mockTaskStore) Update(ctx context.Context, task *model.Task) error {
 		}
 	}
 	return nil
+}
+
+func (m *mockTaskStore) GetByUID(ctx context.Context, uid string) (*model.Task, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// Search all task lists
+	for _, t := range m.created {
+		if t.TaskUID == uid {
+			return t, nil
+		}
+	}
+	for _, t := range m.pending {
+		if t.TaskUID == uid {
+			return t, nil
+		}
+	}
+	for _, t := range m.running {
+		if t.TaskUID == uid {
+			return t, nil
+		}
+	}
+	return nil, fmt.Errorf("task %s not found", uid)
 }
 
 // mockExecutor simulates task execution.

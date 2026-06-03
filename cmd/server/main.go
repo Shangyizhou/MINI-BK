@@ -133,7 +133,7 @@ func main() {
 
 	// 启动 gRPC Server
 	grpcSrv := grpc.NewServer()
-	agentSrv := grpcserver.NewAgentServer(nodeMgr)
+	agentSrv := grpcserver.NewAgentServer(nodeMgr, sched)
 	grpcserver.RegisterWithGRPC(grpcSrv, agentSrv)
 
 	go func() {

@@ -29,6 +29,15 @@ type TaskResult struct {
 	Error    error
 }
 
+// RemoteError is an error type for task failures reported by remote agents.
+type RemoteError struct {
+	Message string
+}
+
+func (e *RemoteError) Error() string {
+	return e.Message
+}
+
 // Executor runs tasks as OS processes with concurrency control.
 type Executor struct {
 	slots     chan struct{}

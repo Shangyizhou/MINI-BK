@@ -17,6 +17,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/shangyizhou/mini-bk/internal/executor"
+	"github.com/shangyizhou/mini-bk/internal/model"
 	"github.com/shangyizhou/mini-bk/pkg/proto"
 )
 
@@ -101,6 +103,9 @@ func main() {
 	// Start heartbeat goroutine
 	go heartbeatLoop(client, nodeID, version)
 
+	// Start task polling loop
+	go taskPollLoop(client, nodeID)
+
 	// Wait for signal
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
@@ -123,6 +128,66 @@ func heartbeatLoop(client proto.AgentServiceClient, nodeID, version string) {
 		if err != nil {
 			slog.Warn("心跳发送失败", "error", err)
 		}
+	}
+}
+
+// taskPollLoop periodically polls the server for tasks assigned to this node.
+func taskPollLoop(client proto.AgentServiceClient, nodeID string) {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		resp, err := client.PullTask(ctx, &proto.PullTaskRequest{NodeId: nodeID})
+		cancel()
+		if err != nil {
+			slog.Debug("拉取任务失败", "error", err)
+			continue
+		}
+		if resp.TaskUid == "" {
+			continue
+		}
+
+		slog.Info("收到远程任务", "task_uid", resp.TaskUid, "name", resp.Name)
+		go executeTask(client, nodeID, resp)
+	}
+}
+
+// executeTask runs a task received via PullTask and reports the result.
+func executeTask(client proto.AgentServiceClient, nodeID string, req *proto.PullTaskResponse) {
+	task := model.NewTask(req.Name, req.Command)
+	task.TaskUID = req.TaskUid
+	task.Workdir = req.Workdir
+	task.Env = req.Env
+	task.TimeoutSec = int(req.TimeoutSec)
+
+	exec := executor.NewExecutor(10, nil)
+	ctx := context.Background()
+	result := exec.Run(ctx, task)
+
+	slog.Info("远程任务执行完毕",
+		"task_uid", req.TaskUid,
+		"exit_code", result.ExitCode,
+		"timed_out", result.TimedOut,
+	)
+
+	reportCtx, reportCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer reportCancel()
+
+	errMsg := ""
+	if result.Error != nil {
+		errMsg = result.Error.Error()
+	}
+
+	_, err := client.ReportResult(reportCtx, &proto.ResultRequest{
+		TaskUid:      req.TaskUid,
+		ExitCode:     int32(result.ExitCode),
+		Stdout:       result.Stdout,
+		Stderr:       result.Stderr,
+		ErrorMessage: errMsg,
+		TimedOut:     result.TimedOut,
+	})
+	if err != nil {
+		slog.Error("报告任务结果失败", "task_uid", req.TaskUid, "error", err)
 	}
 }
 

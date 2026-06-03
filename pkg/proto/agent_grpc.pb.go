@@ -25,6 +25,7 @@ const (
 	AgentService_CancelTask_FullMethodName   = "/agent.AgentService/CancelTask"
 	AgentService_StreamLog_FullMethodName    = "/agent.AgentService/StreamLog"
 	AgentService_ReportResult_FullMethodName = "/agent.AgentService/ReportResult"
+	AgentService_PullTask_FullMethodName     = "/agent.AgentService/PullTask"
 )
 
 // AgentServiceClient is the client API for AgentService service.
@@ -37,6 +38,7 @@ type AgentServiceClient interface {
 	CancelTask(ctx context.Context, in *CancelRequest, opts ...grpc.CallOption) (*CancelResponse, error)
 	StreamLog(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[LogChunk, ServerMessage], error)
 	ReportResult(ctx context.Context, in *ResultRequest, opts ...grpc.CallOption) (*ResultResponse, error)
+	PullTask(ctx context.Context, in *PullTaskRequest, opts ...grpc.CallOption) (*PullTaskResponse, error)
 }
 
 type agentServiceClient struct {
@@ -110,6 +112,16 @@ func (c *agentServiceClient) ReportResult(ctx context.Context, in *ResultRequest
 	return out, nil
 }
 
+func (c *agentServiceClient) PullTask(ctx context.Context, in *PullTaskRequest, opts ...grpc.CallOption) (*PullTaskResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PullTaskResponse)
+	err := c.cc.Invoke(ctx, AgentService_PullTask_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AgentServiceServer is the server API for AgentService service.
 // All implementations must embed UnimplementedAgentServiceServer
 // for forward compatibility.
@@ -120,6 +132,7 @@ type AgentServiceServer interface {
 	CancelTask(context.Context, *CancelRequest) (*CancelResponse, error)
 	StreamLog(grpc.BidiStreamingServer[LogChunk, ServerMessage]) error
 	ReportResult(context.Context, *ResultRequest) (*ResultResponse, error)
+	PullTask(context.Context, *PullTaskRequest) (*PullTaskResponse, error)
 	mustEmbedUnimplementedAgentServiceServer()
 }
 
@@ -147,6 +160,9 @@ func (UnimplementedAgentServiceServer) StreamLog(grpc.BidiStreamingServer[LogChu
 }
 func (UnimplementedAgentServiceServer) ReportResult(context.Context, *ResultRequest) (*ResultResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ReportResult not implemented")
+}
+func (UnimplementedAgentServiceServer) PullTask(context.Context, *PullTaskRequest) (*PullTaskResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method PullTask not implemented")
 }
 func (UnimplementedAgentServiceServer) mustEmbedUnimplementedAgentServiceServer() {}
 func (UnimplementedAgentServiceServer) testEmbeddedByValue()                      {}
@@ -266,6 +282,24 @@ func _AgentService_ReportResult_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AgentService_PullTask_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PullTaskRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).PullTask(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_PullTask_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).PullTask(ctx, req.(*PullTaskRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AgentService_ServiceDesc is the grpc.ServiceDesc for AgentService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -292,6 +326,10 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ReportResult",
 			Handler:    _AgentService_ReportResult_Handler,
+		},
+		{
+			MethodName: "PullTask",
+			Handler:    _AgentService_PullTask_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

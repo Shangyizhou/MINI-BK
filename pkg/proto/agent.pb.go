@@ -833,6 +833,134 @@ func (x *ResultResponse) GetOk() bool {
 	return false
 }
 
+type PullTaskRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	NodeId        string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PullTaskRequest) Reset() {
+	*x = PullTaskRequest{}
+	mi := &file_pkg_proto_agent_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PullTaskRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PullTaskRequest) ProtoMessage() {}
+
+func (x *PullTaskRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_pkg_proto_agent_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PullTaskRequest.ProtoReflect.Descriptor instead.
+func (*PullTaskRequest) Descriptor() ([]byte, []int) {
+	return file_pkg_proto_agent_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *PullTaskRequest) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
+	}
+	return ""
+}
+
+type PullTaskResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TaskUid       string                 `protobuf:"bytes,1,opt,name=task_uid,json=taskUid,proto3" json:"task_uid,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Command       string                 `protobuf:"bytes,3,opt,name=command,proto3" json:"command,omitempty"`
+	Workdir       string                 `protobuf:"bytes,4,opt,name=workdir,proto3" json:"workdir,omitempty"`
+	Env           map[string]string      `protobuf:"bytes,5,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	TimeoutSec    int32                  `protobuf:"varint,6,opt,name=timeout_sec,json=timeoutSec,proto3" json:"timeout_sec,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PullTaskResponse) Reset() {
+	*x = PullTaskResponse{}
+	mi := &file_pkg_proto_agent_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PullTaskResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PullTaskResponse) ProtoMessage() {}
+
+func (x *PullTaskResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_pkg_proto_agent_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PullTaskResponse.ProtoReflect.Descriptor instead.
+func (*PullTaskResponse) Descriptor() ([]byte, []int) {
+	return file_pkg_proto_agent_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *PullTaskResponse) GetTaskUid() string {
+	if x != nil {
+		return x.TaskUid
+	}
+	return ""
+}
+
+func (x *PullTaskResponse) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *PullTaskResponse) GetCommand() string {
+	if x != nil {
+		return x.Command
+	}
+	return ""
+}
+
+func (x *PullTaskResponse) GetWorkdir() string {
+	if x != nil {
+		return x.Workdir
+	}
+	return ""
+}
+
+func (x *PullTaskResponse) GetEnv() map[string]string {
+	if x != nil {
+		return x.Env
+	}
+	return nil
+}
+
+func (x *PullTaskResponse) GetTimeoutSec() int32 {
+	if x != nil {
+		return x.TimeoutSec
+	}
+	return 0
+}
+
 var File_pkg_proto_agent_proto protoreflect.FileDescriptor
 
 const file_pkg_proto_agent_proto_rawDesc = "" +
@@ -898,7 +1026,20 @@ const file_pkg_proto_agent_proto_rawDesc = "" +
 	"\rerror_message\x18\x05 \x01(\tR\ferrorMessage\x12\x1b\n" +
 	"\ttimed_out\x18\x06 \x01(\bR\btimedOut\" \n" +
 	"\x0eResultResponse\x12\x0e\n" +
-	"\x02ok\x18\x01 \x01(\bR\x02ok2\xf2\x02\n" +
+	"\x02ok\x18\x01 \x01(\bR\x02ok\"*\n" +
+	"\x0fPullTaskRequest\x12\x17\n" +
+	"\anode_id\x18\x01 \x01(\tR\x06nodeId\"\x82\x02\n" +
+	"\x10PullTaskResponse\x12\x19\n" +
+	"\btask_uid\x18\x01 \x01(\tR\ataskUid\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x18\n" +
+	"\acommand\x18\x03 \x01(\tR\acommand\x12\x18\n" +
+	"\aworkdir\x18\x04 \x01(\tR\aworkdir\x122\n" +
+	"\x03env\x18\x05 \x03(\v2 .agent.PullTaskResponse.EnvEntryR\x03env\x12\x1f\n" +
+	"\vtimeout_sec\x18\x06 \x01(\x05R\n" +
+	"timeoutSec\x1a6\n" +
+	"\bEnvEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x012\xaf\x03\n" +
 	"\fAgentService\x12;\n" +
 	"\bRegister\x12\x16.agent.RegisterRequest\x1a\x17.agent.RegisterResponse\x12>\n" +
 	"\tHeartbeat\x12\x17.agent.HeartbeatRequest\x1a\x18.agent.HeartbeatResponse\x125\n" +
@@ -907,7 +1048,8 @@ const file_pkg_proto_agent_proto_rawDesc = "" +
 	"\n" +
 	"CancelTask\x12\x14.agent.CancelRequest\x1a\x15.agent.CancelResponse\x126\n" +
 	"\tStreamLog\x12\x0f.agent.LogChunk\x1a\x14.agent.ServerMessage(\x010\x01\x12;\n" +
-	"\fReportResult\x12\x14.agent.ResultRequest\x1a\x15.agent.ResultResponseB*Z(github.com/shangyizhou/mini-bk/pkg/protob\x06proto3"
+	"\fReportResult\x12\x14.agent.ResultRequest\x1a\x15.agent.ResultResponse\x12;\n" +
+	"\bPullTask\x12\x16.agent.PullTaskRequest\x1a\x17.agent.PullTaskResponseB*Z(github.com/shangyizhou/mini-bk/pkg/protob\x06proto3"
 
 var (
 	file_pkg_proto_agent_proto_rawDescOnce sync.Once
@@ -921,7 +1063,7 @@ func file_pkg_proto_agent_proto_rawDescGZIP() []byte {
 	return file_pkg_proto_agent_proto_rawDescData
 }
 
-var file_pkg_proto_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
+var file_pkg_proto_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_pkg_proto_agent_proto_goTypes = []any{
 	(*RegisterRequest)(nil),   // 0: agent.RegisterRequest
 	(*RegisterResponse)(nil),  // 1: agent.RegisterResponse
@@ -936,28 +1078,34 @@ var file_pkg_proto_agent_proto_goTypes = []any{
 	(*ServerMessage)(nil),     // 10: agent.ServerMessage
 	(*ResultRequest)(nil),     // 11: agent.ResultRequest
 	(*ResultResponse)(nil),    // 12: agent.ResultResponse
-	nil,                       // 13: agent.TaskRequest.EnvEntry
+	(*PullTaskRequest)(nil),   // 13: agent.PullTaskRequest
+	(*PullTaskResponse)(nil),  // 14: agent.PullTaskResponse
+	nil,                       // 15: agent.TaskRequest.EnvEntry
+	nil,                       // 16: agent.PullTaskResponse.EnvEntry
 }
 var file_pkg_proto_agent_proto_depIdxs = []int32{
 	2,  // 0: agent.HeartbeatRequest.resources:type_name -> agent.NodeResource
-	13, // 1: agent.TaskRequest.env:type_name -> agent.TaskRequest.EnvEntry
-	0,  // 2: agent.AgentService.Register:input_type -> agent.RegisterRequest
-	3,  // 3: agent.AgentService.Heartbeat:input_type -> agent.HeartbeatRequest
-	5,  // 4: agent.AgentService.SubmitTask:input_type -> agent.TaskRequest
-	7,  // 5: agent.AgentService.CancelTask:input_type -> agent.CancelRequest
-	9,  // 6: agent.AgentService.StreamLog:input_type -> agent.LogChunk
-	11, // 7: agent.AgentService.ReportResult:input_type -> agent.ResultRequest
-	1,  // 8: agent.AgentService.Register:output_type -> agent.RegisterResponse
-	4,  // 9: agent.AgentService.Heartbeat:output_type -> agent.HeartbeatResponse
-	6,  // 10: agent.AgentService.SubmitTask:output_type -> agent.TaskResponse
-	8,  // 11: agent.AgentService.CancelTask:output_type -> agent.CancelResponse
-	10, // 12: agent.AgentService.StreamLog:output_type -> agent.ServerMessage
-	12, // 13: agent.AgentService.ReportResult:output_type -> agent.ResultResponse
-	8,  // [8:14] is the sub-list for method output_type
-	2,  // [2:8] is the sub-list for method input_type
-	2,  // [2:2] is the sub-list for extension type_name
-	2,  // [2:2] is the sub-list for extension extendee
-	0,  // [0:2] is the sub-list for field type_name
+	15, // 1: agent.TaskRequest.env:type_name -> agent.TaskRequest.EnvEntry
+	16, // 2: agent.PullTaskResponse.env:type_name -> agent.PullTaskResponse.EnvEntry
+	0,  // 3: agent.AgentService.Register:input_type -> agent.RegisterRequest
+	3,  // 4: agent.AgentService.Heartbeat:input_type -> agent.HeartbeatRequest
+	5,  // 5: agent.AgentService.SubmitTask:input_type -> agent.TaskRequest
+	7,  // 6: agent.AgentService.CancelTask:input_type -> agent.CancelRequest
+	9,  // 7: agent.AgentService.StreamLog:input_type -> agent.LogChunk
+	11, // 8: agent.AgentService.ReportResult:input_type -> agent.ResultRequest
+	13, // 9: agent.AgentService.PullTask:input_type -> agent.PullTaskRequest
+	1,  // 10: agent.AgentService.Register:output_type -> agent.RegisterResponse
+	4,  // 11: agent.AgentService.Heartbeat:output_type -> agent.HeartbeatResponse
+	6,  // 12: agent.AgentService.SubmitTask:output_type -> agent.TaskResponse
+	8,  // 13: agent.AgentService.CancelTask:output_type -> agent.CancelResponse
+	10, // 14: agent.AgentService.StreamLog:output_type -> agent.ServerMessage
+	12, // 15: agent.AgentService.ReportResult:output_type -> agent.ResultResponse
+	14, // 16: agent.AgentService.PullTask:output_type -> agent.PullTaskResponse
+	10, // [10:17] is the sub-list for method output_type
+	3,  // [3:10] is the sub-list for method input_type
+	3,  // [3:3] is the sub-list for extension type_name
+	3,  // [3:3] is the sub-list for extension extendee
+	0,  // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_pkg_proto_agent_proto_init() }
@@ -971,7 +1119,7 @@ func file_pkg_proto_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_pkg_proto_agent_proto_rawDesc), len(file_pkg_proto_agent_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   14,
+			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

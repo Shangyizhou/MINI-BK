@@ -23,6 +23,7 @@ type TaskStore interface {
 	GetPendingTasks(ctx context.Context) ([]*model.Task, error)
 	GetRunningTasks(ctx context.Context) ([]*model.Task, error)
 	Update(ctx context.Context, task *model.Task) error
+	GetByUID(ctx context.Context, uid string) (*model.Task, error)
 }
 
 // NodeManager defines the interface for node management used by the scheduler.
@@ -46,6 +47,8 @@ type Scheduler struct {
 	cancelFuncs   map[string]context.CancelFunc // taskUID -> cancel
 	cancelMu      sync.Mutex
 	queue         queue.TaskQueue
+	nodeTasks     map[string]chan *model.Task // nodeID -> pending task queue
+	nodeTasksMu   sync.Mutex
 }
 
 // NewScheduler creates a new Scheduler with the given store, executor, tick interval,
@@ -62,6 +65,7 @@ func NewScheduler(store TaskStore, exec executor.TaskExecutor, tickInterval time
 		rdb:           rdb,
 		cancelFuncs:   make(map[string]context.CancelFunc),
 		queue:         q,
+		nodeTasks:     make(map[string]chan *model.Task),
 	}
 }
 
@@ -302,7 +306,7 @@ func (s *Scheduler) dispatchLocal(ctx context.Context, task *model.Task) {
 	}(task)
 }
 
-// dispatchRemote sends the task to a remote agent via gRPC
+// dispatchRemote sends the task to a remote agent via PullTask polling
 func (s *Scheduler) dispatchRemote(ctx context.Context, task *model.Task, node *model.Node) {
 	// Transition to running
 	if err := task.TransitionTo(model.TaskStatusRunning); err != nil {
@@ -332,17 +336,77 @@ func (s *Scheduler) dispatchRemote(ctx context.Context, task *model.Task, node *
 	s.cancelFuncs[task.TaskUID] = taskCancel
 	s.cancelMu.Unlock()
 
-	go func(t *model.Task) {
-		defer func() {
-			s.cancelMu.Lock()
-			delete(s.cancelFuncs, t.TaskUID)
-			s.cancelMu.Unlock()
-		}()
-		// Full gRPC client integration will be added in a later phase.
-		// For now, execute locally as a fallback.
-		result := s.executor.Run(taskCtx, t)
-		s.completeTask(ctx, t, result)
-	}(task)
+	// Push task to node's queue for agent to pick up via PullTask
+	ch := s.getOrCreateNodeQueue(node.NodeID)
+	select {
+	case ch <- task:
+		slog.Info("scheduler: task pushed to remote node queue",
+			"task_uid", task.TaskUID,
+			"node_id", node.NodeID,
+		)
+	default:
+		slog.Warn("scheduler: remote node queue full, falling back to local execution",
+			"task_uid", task.TaskUID,
+			"node_id", node.NodeID,
+		)
+		// Fallback to local execution
+		go func(t *model.Task) {
+			defer func() {
+				s.cancelMu.Lock()
+				delete(s.cancelFuncs, t.TaskUID)
+				s.cancelMu.Unlock()
+			}()
+			result := s.executor.Run(taskCtx, t)
+			s.completeTask(ctx, t, result)
+		}(task)
+	}
+}
+
+// getOrCreateNodeQueue returns the task channel for the given node, creating one if needed.
+func (s *Scheduler) getOrCreateNodeQueue(nodeID string) chan *model.Task {
+	s.nodeTasksMu.Lock()
+	defer s.nodeTasksMu.Unlock()
+	ch, ok := s.nodeTasks[nodeID]
+	if !ok {
+		ch = make(chan *model.Task, 10) // buffer up to 10 tasks
+		s.nodeTasks[nodeID] = ch
+	}
+	return ch
+}
+
+// GetNextTaskForNode returns the next pending task for the given node, or nil if none.
+// This is called by the gRPC server when an agent polls for work.
+func (s *Scheduler) GetNextTaskForNode(nodeID string) *model.Task {
+	s.nodeTasksMu.Lock()
+	defer s.nodeTasksMu.Unlock()
+	ch, ok := s.nodeTasks[nodeID]
+	if !ok {
+		return nil
+	}
+	select {
+	case task := <-ch:
+		return task
+	default:
+		return nil
+	}
+}
+
+// HandleRemoteResult processes a task result reported by a remote agent.
+func (s *Scheduler) HandleRemoteResult(ctx context.Context, taskUID string, result *executor.TaskResult) {
+	task, err := s.store.GetByUID(ctx, taskUID)
+	if err != nil {
+		slog.Error("scheduler: failed to get task for remote result",
+			"task_uid", taskUID,
+			"error", err,
+		)
+		return
+	}
+
+	s.cancelMu.Lock()
+	delete(s.cancelFuncs, taskUID)
+	s.cancelMu.Unlock()
+
+	s.completeTask(ctx, task, result)
 }
 
 // completeTask handles the result of a completed task execution.
