@@ -1,0 +1,94 @@
+syntax = "proto3";
+package agent;
+option go_package = "github.com/shangyizhou/mini-bk/pkg/proto";
+
+service AgentService {
+    rpc Register(RegisterRequest) returns (RegisterResponse);
+    rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+    rpc SubmitTask(TaskRequest) returns (TaskResponse);
+    rpc CancelTask(CancelRequest) returns (CancelResponse);
+    rpc StreamLog(stream LogChunk) returns (stream ServerMessage);
+    rpc ReportResult(ResultRequest) returns (ResultResponse);
+}
+
+message RegisterRequest {
+    string hostname = 1;
+    string ip = 2;
+    string version = 3;
+    int64 total_cpu = 4;
+    int64 total_memory_mb = 5;
+    int64 total_disk_mb = 6;
+    repeated string labels = 7;
+}
+
+message RegisterResponse {
+    string node_id = 1;
+    bool accepted = 2;
+    string message = 3;
+}
+
+message NodeResource {
+    double cpu_usage_percent = 1;
+    int64 memory_used_mb = 2;
+    int64 memory_total_mb = 3;
+    int64 disk_used_mb = 4;
+    int64 disk_total_mb = 5;
+    double load_avg_1m = 6;
+    int32 running_tasks = 7;
+}
+
+message HeartbeatRequest {
+    string node_id = 1;
+    string version = 2;
+    NodeResource resources = 3;
+}
+
+message HeartbeatResponse {
+    bool ok = 1;
+}
+
+message TaskRequest {
+    string task_uid = 1;
+    string name = 2;
+    string command = 3;
+    string workdir = 4;
+    map<string, string> env = 5;
+    int32 timeout_sec = 6;
+}
+
+message TaskResponse {
+    bool accepted = 1;
+}
+
+message CancelRequest {
+    string task_uid = 1;
+}
+
+message CancelResponse {
+    bool ok = 1;
+}
+
+message LogChunk {
+    string task_uid = 1;
+    string line = 2;
+    string stream = 3; // "stdout" or "stderr"
+    int64 timestamp = 4;
+}
+
+message ServerMessage {
+    string task_uid = 1;
+    string action = 2; // "cancel"
+}
+
+message ResultRequest {
+    string task_uid = 1;
+    int32 exit_code = 2;
+    string stdout = 3;
+    string stderr = 4;
+    string error_message = 5;
+    bool timed_out = 6;
+}
+
+message ResultResponse {
+    bool ok = 1;
+}
