@@ -25,11 +25,6 @@ type TaskStore interface {
 	Update(ctx context.Context, task *model.Task) error
 }
 
-// TaskExecutor defines the interface for executing a task.
-type TaskExecutor interface {
-	Run(ctx context.Context, task *model.Task) *executor.TaskResult
-}
-
 // NodeManager defines the interface for node management used by the scheduler.
 type NodeManager interface {
 	FindByLabels(selector map[string]string) []*model.Node
@@ -41,7 +36,7 @@ const maxRetryDelay = 5 * time.Minute
 // based on available resources.
 type Scheduler struct {
 	store         TaskStore
-	executor      TaskExecutor
+	executor      executor.TaskExecutor
 	nodeMgr       NodeManager
 	tickInterval  time.Duration
 	maxConcurrent int
@@ -56,7 +51,7 @@ type Scheduler struct {
 // NewScheduler creates a new Scheduler with the given store, executor, tick interval,
 // and max concurrency. It detects total CPU via runtime.NumCPU() and defaults
 // totalMemMB to 8192.
-func NewScheduler(store TaskStore, exec TaskExecutor, tickInterval time.Duration, maxConcurrent int, rdb *redis.Client, q queue.TaskQueue) *Scheduler {
+func NewScheduler(store TaskStore, exec executor.TaskExecutor, tickInterval time.Duration, maxConcurrent int, rdb *redis.Client, q queue.TaskQueue) *Scheduler {
 	return &Scheduler{
 		store:         store,
 		executor:      exec,

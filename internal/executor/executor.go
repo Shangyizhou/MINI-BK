@@ -15,6 +15,11 @@ import (
 	"github.com/shangyizhou/mini-bk/internal/model"
 )
 
+// TaskExecutor is the interface for running tasks.
+type TaskExecutor interface {
+	Run(ctx context.Context, task *model.Task) *TaskResult
+}
+
 // TaskResult holds the result of a task execution.
 type TaskResult struct {
 	ExitCode int
