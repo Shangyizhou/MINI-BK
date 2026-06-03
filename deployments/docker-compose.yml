@@ -25,6 +25,7 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8080:8080"
+      - "50051:50051"
     environment:
       CONFIG_PATH: /app/configs/config.yaml
       MINIBK_DATABASE_HOST: postgres
@@ -32,6 +33,14 @@ services:
     depends_on:
       - postgres
       - redis
+
+  agent:
+    build:
+      context: ..
+      dockerfile: Dockerfile.agent
+    command: ["./agent", "-server-addr=server:50051", "-labels=linux,test"]
+    depends_on:
+      - server
 
 volumes:
   pgdata:

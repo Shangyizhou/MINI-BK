@@ -157,3 +157,90 @@
 ### 发布
 
 - Tag: v0.2.0
+
+---
+
+## 2026-06-04 — Phase 3 节点管理与远程执行
+
+### 节点模型与节点存储
+
+- 节点模型 `model.Node`：节点 ID、主机名、IP、版本、标签、资源总量/使用量、心跳时间、状态
+- 节点状态机：offline / online / drain
+- `store.NodeStore`：CRUD + UpdateHeartbeat + 按状态列表
+- 迁移脚本 `migrations/000003_create_nodes`：nodes 表 DDL
+
+### 节点管理器 (nodemanager)
+
+- `NodeManager`：内存缓存在线节点，支持注册、心跳更新
+- 注册：gRPC Register → DB Create → 加入在线缓存
+- 心跳：每 10 秒更新资源使用+最后心跳时间
+- 离线检测：StartOfflineChecker 每 5 秒检查，超时 30 秒标记 Offline
+- 标签匹配：FindByLabels 支持 key=value 和松散匹配
+- 在线节点列表：GetOnlineNodes() 供调度使用
+
+### gRPC 服务端 (grpcserver)
+
+- `AgentServer` 实现 proto.AgentServiceServer
+- Register：接收 Agent 注册请求
+- Heartbeat：接收 Agent 心跳 + 资源上报
+- PullTask：Agent 轮询拉取待分配任务
+- ReportResult：接收 Agent 远程执行结果
+- RegisterWithGRPC：注册 gRPC 服务
+
+### gRPC 客户端连接池 (grpcclient)
+
+- `Pool`：按 nodeID 管理 gRPC 连接
+- GetOrCreate：延迟创建，双重检查锁
+- Remove：关闭并移除连接
+- Close：关闭所有连接
+- 可选组件，当前 server 侧暂未主动调用
+
+### 节点选择调度
+
+- Scheduler 新增 `SelectNode()` 三层筛选：标签匹配 → 资源过滤 → 最少负载
+- `dispatchRemote()`：推送到节点队列供 PullTask 消费
+- `GetNextTaskForNode()`：gRPC PullTask 回调
+- `HandleRemoteResult()`：处理远程执行结果
+- 无匹配节点时自动降级到本地执行
+- 节点队列满时降级到本地执行
+
+### 节点管理 API
+
+- `GET /api/v1/nodes`：列出节点（支持 ?status=online 过滤）
+- `GET /api/v1/nodes/:node_id`：节点详情
+- `POST /api/v1/nodes/:node_id/drain`：设置 Drain 状态
+- `POST /api/v1/nodes/:node_id/uncordon`：恢复在线
+
+### 任务模型扩展
+
+- Task 新增 `node_selector` JSONB 字段（标签选择器）
+- Task 新增 `assigned_node_id` 字段（分配的节点 ID）
+- 迁移脚本 `migrations/000004_add_node_selector`
+- NewTask 初始化空 NodeSelector map
+- CreateTaskRequest 支持 node_selector 字段
+
+### Agent 二进制 (cmd/agent)
+
+- 独立 Agent 入口，支持 `-server-addr` 和 `-labels` 参数
+- 启动时 Register 注册到 Server
+- 定时 Heartbeat 上报资源使用
+- 定时 PullTask 轮询拉取任务
+- 本地 executor.Run() 执行后 ReportResult
+
+### 主入口增强 (main.go)
+
+- gRPC Server 在 :50051 端口监听
+- AgentClient 连接池（可选）
+- 完整的节点管理 + 离线检测 goroutine
+- 优雅关闭顺序：HTTP → gRPC → Scheduler → DB 连接
+- 配置扩展：grpc.port / agent.heartbeat_interval_sec / agent.heartbeat_timeout_sec
+
+### 部署
+
+- `Dockerfile.agent`：Agent 独立 multi-stage 构建
+- `deployments/docker-compose.yml`：新增 Agent 服务
+- `docker-compose.yml` 新增 :50051 端口映射
+
+### 发布
+
+- Tag: v0.3.0
