@@ -103,6 +103,7 @@ func main() {
 		rdb,
 		taskQueue,
 	)
+	sched.SetNodeManager(nodeMgr)
 
 	// 启动调度器
 	schedCtx, schedCancel := context.WithCancel(context.Background())

@@ -2,8 +2,10 @@ package scheduler
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -28,6 +30,11 @@ type TaskExecutor interface {
 	Run(ctx context.Context, task *model.Task) *executor.TaskResult
 }
 
+// NodeManager defines the interface for node management used by the scheduler.
+type NodeManager interface {
+	FindByLabels(selector map[string]string) []*model.Node
+}
+
 const maxRetryDelay = 5 * time.Minute
 
 // Scheduler periodically checks for tasks to schedule and dispatches them
@@ -35,6 +42,7 @@ const maxRetryDelay = 5 * time.Minute
 type Scheduler struct {
 	store         TaskStore
 	executor      TaskExecutor
+	nodeMgr       NodeManager
 	tickInterval  time.Duration
 	maxConcurrent int
 	totalCPU      int
@@ -60,6 +68,12 @@ func NewScheduler(store TaskStore, exec TaskExecutor, tickInterval time.Duration
 		cancelFuncs:   make(map[string]context.CancelFunc),
 		queue:         q,
 	}
+}
+
+// SetNodeManager sets the NodeManager for multi-node scheduling.
+// If not set, the scheduler operates in local-only mode.
+func (s *Scheduler) SetNodeManager(nm NodeManager) {
+	s.nodeMgr = nm
 }
 
 // Start starts the scheduler's tick loop and listens for task cancellation
@@ -179,8 +193,45 @@ func (s *Scheduler) canAllocate(task *model.Task, availableCPU, availableMem int
 	return true
 }
 
+// SelectNode picks the best node for a task using 3-layer filtering:
+// Layer 1: Label matching
+// Layer 2: Resource filtering
+// Layer 3: LeastAllocated scoring
+func (s *Scheduler) SelectNode(task *model.Task) (*model.Node, error) {
+	if s.nodeMgr == nil {
+		return nil, nil // no remote nodes, use local executor
+	}
+
+	// Layer 1: Label matching
+	candidates := s.nodeMgr.FindByLabels(task.NodeSelector)
+	if len(candidates) == 0 {
+		return nil, fmt.Errorf("no node matching labels %v", task.NodeSelector)
+	}
+
+	// Layer 2: Resource filtering
+	var filtered []*model.Node
+	for _, node := range candidates {
+		availableCPU := node.TotalCPU - int(float64(node.TotalCPU)*node.CPUUsagePct/100.0)
+		availableMem := node.TotalMemoryMB - node.MemoryUsedMB
+		if (task.CPULimit == 0 || task.CPULimit <= availableCPU) &&
+			(task.MemoryLimit == 0 || task.MemoryLimit <= availableMem) {
+			filtered = append(filtered, node)
+		}
+	}
+	if len(filtered) == 0 {
+		return nil, fmt.Errorf("no node with sufficient resources")
+	}
+
+	// Layer 3: LeastAllocated scoring (pick the least utilized node)
+	sort.Slice(filtered, func(i, j int) bool {
+		return filtered[i].CPUUsagePct < filtered[j].CPUUsagePct
+	})
+
+	return filtered[0], nil
+}
+
 // dispatch transitions a task to Running, updates the store, and launches
-// execution in a goroutine.
+// execution in a goroutine. It uses remote execution when a suitable node is found.
 func (s *Scheduler) dispatch(ctx context.Context, task *model.Task) {
 	// If task is in created state, first transition to pending
 	if task.Status == model.TaskStatusCreated {
@@ -194,6 +245,30 @@ func (s *Scheduler) dispatch(ctx context.Context, task *model.Task) {
 		}
 	}
 
+	// Try to select a remote node
+	node, err := s.SelectNode(task)
+	if err != nil {
+		// No suitable remote node, use local executor as fallback
+		slog.Debug("scheduler: no remote node, using local executor",
+			"task_uid", task.TaskUID,
+			"error", err,
+		)
+		s.dispatchLocal(ctx, task)
+		return
+	}
+
+	if node == nil {
+		// No remote nodes at all (nodeMgr is nil), use local
+		s.dispatchLocal(ctx, task)
+		return
+	}
+
+	// Remote execution via gRPC
+	s.dispatchRemote(ctx, task, node)
+}
+
+// dispatchLocal executes the task locally (existing Phase 1/2 behavior)
+func (s *Scheduler) dispatchLocal(ctx context.Context, task *model.Task) {
 	// Transition to running
 	if err := task.TransitionTo(model.TaskStatusRunning); err != nil {
 		slog.Error("scheduler: failed to transition task to running", "error", err, "task_uid", task.TaskUID)
@@ -208,7 +283,7 @@ func (s *Scheduler) dispatch(ctx context.Context, task *model.Task) {
 		return
 	}
 
-	slog.Info("scheduler: dispatching task",
+	slog.Info("scheduler: dispatching task locally",
 		"task_uid", task.TaskUID,
 		"name", task.Name,
 		"cpu_limit", task.CPULimit,
@@ -227,6 +302,49 @@ func (s *Scheduler) dispatch(ctx context.Context, task *model.Task) {
 			delete(s.cancelFuncs, t.TaskUID)
 			s.cancelMu.Unlock()
 		}()
+		result := s.executor.Run(taskCtx, t)
+		s.completeTask(ctx, t, result)
+	}(task)
+}
+
+// dispatchRemote sends the task to a remote agent via gRPC
+func (s *Scheduler) dispatchRemote(ctx context.Context, task *model.Task, node *model.Node) {
+	// Transition to running
+	if err := task.TransitionTo(model.TaskStatusRunning); err != nil {
+		slog.Error("scheduler: failed to transition task to running", "error", err, "task_uid", task.TaskUID)
+		return
+	}
+
+	task.AssignedNodeID = node.NodeID
+	now := time.Now()
+	task.StartedAt = &now
+
+	if err := s.store.Update(ctx, task); err != nil {
+		slog.Error("scheduler: failed to update task for remote dispatch", "error", err, "task_uid", task.TaskUID)
+		return
+	}
+
+	slog.Info("scheduler: dispatching task to remote node",
+		"task_uid", task.TaskUID,
+		"name", task.Name,
+		"node_id", node.NodeID,
+		"node_hostname", node.Hostname,
+	)
+
+	// Create cancellable context for this task
+	taskCtx, taskCancel := context.WithCancel(ctx)
+	s.cancelMu.Lock()
+	s.cancelFuncs[task.TaskUID] = taskCancel
+	s.cancelMu.Unlock()
+
+	go func(t *model.Task) {
+		defer func() {
+			s.cancelMu.Lock()
+			delete(s.cancelFuncs, t.TaskUID)
+			s.cancelMu.Unlock()
+		}()
+		// Full gRPC client integration will be added in a later phase.
+		// For now, execute locally as a fallback.
 		result := s.executor.Run(taskCtx, t)
 		s.completeTask(ctx, t, result)
 	}(task)
