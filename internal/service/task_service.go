@@ -32,6 +32,7 @@ type CreateTaskRequest struct {
 	MemoryLimit int               `json:"memory_limit"`
 	TimeoutSec  int               `json:"timeout_sec"`
 	Priority    int               `json:"priority"`
+	NodeSelector map[string]string `json:"node_selector"`
 }
 
 // TaskListResult 表示任务列表查询结果。
@@ -76,6 +77,9 @@ func (s *TaskService) CreateTask(ctx context.Context, req CreateTaskRequest) (*m
 	}
 	if req.Priority > 0 {
 		task.Priority = req.Priority
+	}
+	if req.NodeSelector != nil {
+		task.NodeSelector = req.NodeSelector
 	}
 
 	// 计算幂等键
@@ -179,14 +183,15 @@ func (s *TaskService) RerunTask(ctx context.Context, uid string) (*model.Task, e
 	}
 
 	req := CreateTaskRequest{
-		Name:        original.Name,
-		Command:     original.Command,
-		Workdir:     original.Workdir,
-		Env:         original.Env,
-		CPULimit:    original.CPULimit,
-		MemoryLimit: original.MemoryLimit,
-		TimeoutSec:  original.TimeoutSec,
-		Priority:    original.Priority,
+		Name:         original.Name,
+		Command:      original.Command,
+		Workdir:      original.Workdir,
+		Env:          original.Env,
+		CPULimit:     original.CPULimit,
+		MemoryLimit:  original.MemoryLimit,
+		TimeoutSec:   original.TimeoutSec,
+		Priority:     original.Priority,
+		NodeSelector: original.NodeSelector,
 	}
 
 	return s.CreateTask(ctx, req)

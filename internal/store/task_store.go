@@ -26,13 +26,19 @@ func (s *TaskStore) Create(ctx context.Context, task *model.Task) error {
 		return err
 	}
 
+	nodeSelectorJSON, err := json.Marshal(task.NodeSelector)
+	if err != nil {
+		return err
+	}
+
 	err = s.pg.DB.QueryRowContext(ctx,
-		`INSERT INTO tasks (task_uid, name, command, workdir, env, cpu_limit, memory_limit, timeout_sec, priority, max_retries, retry_count, retry_interval_sec, idempotency_key, status, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+		`INSERT INTO tasks (task_uid, name, command, workdir, env, cpu_limit, memory_limit, timeout_sec, priority, max_retries, retry_count, retry_interval_sec, idempotency_key, node_selector, assigned_node_id, status, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 		 RETURNING id`,
 		task.TaskUID, task.Name, task.Command, task.Workdir, envJSON,
 		task.CPULimit, task.MemoryLimit, task.TimeoutSec, task.Priority,
 		task.MaxRetries, task.RetryCount, task.RetryIntervalSec, task.IdempotencyKey,
+		nodeSelectorJSON, task.AssignedNodeID,
 		task.Status, task.CreatedAt, task.UpdatedAt,
 	).Scan(&task.ID)
 	return err
@@ -45,17 +51,23 @@ func (s *TaskStore) Update(ctx context.Context, task *model.Task) error {
 		return err
 	}
 
+	nodeSelectorJSON, err := json.Marshal(task.NodeSelector)
+	if err != nil {
+		return err
+	}
+
 	task.UpdatedAt = time.Now()
 
 	_, err = s.pg.DB.ExecContext(ctx,
 		`UPDATE tasks SET name=$1, command=$2, workdir=$3, env=$4, cpu_limit=$5, memory_limit=$6,
 		 timeout_sec=$7, priority=$8, max_retries=$9, retry_count=$10, retry_interval_sec=$11,
-		 idempotency_key=$12, status=$13, exit_code=$14, stdout=$15, stderr=$16,
-		 error_message=$17, pid=$18, started_at=$19, finished_at=$20, updated_at=$21
-		 WHERE task_uid=$22`,
+		 idempotency_key=$12, node_selector=$13, assigned_node_id=$14, status=$15, exit_code=$16, stdout=$17, stderr=$18,
+		 error_message=$19, pid=$20, started_at=$21, finished_at=$22, updated_at=$23
+		 WHERE task_uid=$24`,
 		task.Name, task.Command, task.Workdir, envJSON,
 		task.CPULimit, task.MemoryLimit, task.TimeoutSec, task.Priority,
 		task.MaxRetries, task.RetryCount, task.RetryIntervalSec, task.IdempotencyKey,
+		nodeSelectorJSON, task.AssignedNodeID,
 		task.Status, task.ExitCode, task.Stdout, task.Stderr,
 		task.ErrorMessage, task.PID, task.StartedAt, task.FinishedAt,
 		task.UpdatedAt, task.TaskUID,
@@ -68,6 +80,7 @@ func (s *TaskStore) GetByUID(ctx context.Context, uid string) (*model.Task, erro
 	row := s.pg.DB.QueryRowContext(ctx,
 		`SELECT id, task_uid, name, command, workdir, env, cpu_limit, memory_limit,
 		 timeout_sec, priority, max_retries, retry_count, retry_interval_sec, idempotency_key,
+		 node_selector, assigned_node_id,
 		 status, exit_code, stdout, stderr, error_message,
 		 pid, started_at, finished_at, created_at, updated_at
 		 FROM tasks WHERE task_uid=$1`, uid)
@@ -95,6 +108,7 @@ func (s *TaskStore) List(ctx context.Context, status string, page, size int) ([]
 		rows, err = s.pg.DB.QueryContext(ctx,
 			`SELECT id, task_uid, name, command, workdir, env, cpu_limit, memory_limit,
 			 timeout_sec, priority, max_retries, retry_count, retry_interval_sec, idempotency_key,
+			 node_selector, assigned_node_id,
 			 status, exit_code, stdout, stderr, error_message,
 			 pid, started_at, finished_at, created_at, updated_at
 			 FROM tasks ORDER BY priority DESC, created_at ASC LIMIT $1 OFFSET $2`,
@@ -103,6 +117,7 @@ func (s *TaskStore) List(ctx context.Context, status string, page, size int) ([]
 		rows, err = s.pg.DB.QueryContext(ctx,
 			`SELECT id, task_uid, name, command, workdir, env, cpu_limit, memory_limit,
 			 timeout_sec, priority, max_retries, retry_count, retry_interval_sec, idempotency_key,
+			 node_selector, assigned_node_id,
 			 status, exit_code, stdout, stderr, error_message,
 			 pid, started_at, finished_at, created_at, updated_at
 			 FROM tasks WHERE status=$1 ORDER BY priority DESC, created_at ASC LIMIT $2 OFFSET $3`,
@@ -133,6 +148,7 @@ func (s *TaskStore) GetPendingTasks(ctx context.Context) ([]*model.Task, error) 
 	rows, err := s.pg.DB.QueryContext(ctx,
 		`SELECT id, task_uid, name, command, workdir, env, cpu_limit, memory_limit,
 		 timeout_sec, priority, max_retries, retry_count, retry_interval_sec, idempotency_key,
+		 node_selector, assigned_node_id,
 		 status, exit_code, stdout, stderr, error_message,
 		 pid, started_at, finished_at, created_at, updated_at
 		 FROM tasks WHERE status=$1 ORDER BY priority DESC, created_at ASC`,
@@ -162,6 +178,7 @@ func (s *TaskStore) GetRunningTasks(ctx context.Context) ([]*model.Task, error) 
 	rows, err := s.pg.DB.QueryContext(ctx,
 		`SELECT id, task_uid, name, command, workdir, env, cpu_limit, memory_limit,
 		 timeout_sec, priority, max_retries, retry_count, retry_interval_sec, idempotency_key,
+		 node_selector, assigned_node_id,
 		 status, exit_code, stdout, stderr, error_message,
 		 pid, started_at, finished_at, created_at, updated_at
 		 FROM tasks WHERE status=$1 ORDER BY priority DESC, created_at ASC`,
@@ -191,6 +208,7 @@ func (s *TaskStore) GetCreatedTasks(ctx context.Context) ([]*model.Task, error) 
 	rows, err := s.pg.DB.QueryContext(ctx,
 		`SELECT id, task_uid, name, command, workdir, env, cpu_limit, memory_limit,
 		 timeout_sec, priority, max_retries, retry_count, retry_interval_sec, idempotency_key,
+		 node_selector, assigned_node_id,
 		 status, exit_code, stdout, stderr, error_message,
 		 pid, started_at, finished_at, created_at, updated_at
 		 FROM tasks WHERE status=$1 ORDER BY priority DESC, created_at ASC`,
@@ -224,17 +242,20 @@ type scannable interface {
 func scanTask(row scannable) (*model.Task, error) {
 	task := &model.Task{}
 	var envJSON []byte
+	var nodeSelectorJSON []byte
 
 	var exitCode, pid sql.NullInt64
 	var startedAt, finishedAt sql.NullTime
 	var stdout, stderr, errorMessage sql.NullString
 	var idempotencyKey sql.NullString
+	var assignedNodeID sql.NullString
 
 	err := row.Scan(
 		&task.ID, &task.TaskUID, &task.Name, &task.Command, &task.Workdir,
 		&envJSON, &task.CPULimit, &task.MemoryLimit, &task.TimeoutSec,
 		&task.Priority, &task.MaxRetries, &task.RetryCount, &task.RetryIntervalSec,
 		&idempotencyKey,
+		&nodeSelectorJSON, &assignedNodeID,
 		&task.Status,
 		&exitCode, &stdout, &stderr, &errorMessage,
 		&pid, &startedAt, &finishedAt,
@@ -251,6 +272,15 @@ func scanTask(row scannable) (*model.Task, error) {
 		}
 	} else {
 		task.Env = make(map[string]string)
+	}
+
+	// 解析 JSONB node_selector 字段
+	if len(nodeSelectorJSON) > 0 {
+		if err := json.Unmarshal(nodeSelectorJSON, &task.NodeSelector); err != nil {
+			task.NodeSelector = make(map[string]string)
+		}
+	} else {
+		task.NodeSelector = make(map[string]string)
 	}
 
 	// 处理可空字段
@@ -279,6 +309,9 @@ func scanTask(row scannable) (*model.Task, error) {
 	}
 	if idempotencyKey.Valid {
 		task.IdempotencyKey = idempotencyKey.String
+	}
+	if assignedNodeID.Valid {
+		task.AssignedNodeID = assignedNodeID.String
 	}
 
 	return task, nil

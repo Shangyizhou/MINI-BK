@@ -96,6 +96,7 @@ func NewTask(name, command string) *Task {
 		Command:          command,
 		Workdir:          "/tmp",
 		Env:              make(map[string]string),
+		NodeSelector:     make(map[string]string),
 		TimeoutSec:       300,
 		MaxRetries:       3,
 		RetryIntervalSec: 1,
