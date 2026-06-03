@@ -154,16 +154,20 @@ func main() {
 	sig := <-quit
 	slog.Info("收到信号，正在关闭", "signal", sig)
 
-	// 优雅关闭
+	// 优雅关闭：HTTP 优先，然后 gRPC，再停调度器，数据库连接由 defer 处理
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
 
-	schedCancel() // 先停调度器
+	slog.Info("正在关闭 HTTP 服务")
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		slog.Error("HTTP 服务强制关闭", "error", err)
+	}
+
+	slog.Info("正在关闭 gRPC 服务")
 	grpcSrv.GracefulStop()
 
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		slog.Error("服务强制关闭", "error", err)
-	}
+	slog.Info("正在关闭调度器")
+	schedCancel()
 
 	slog.Info("服务已退出")
 }

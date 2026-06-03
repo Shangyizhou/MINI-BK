@@ -32,3 +32,10 @@ retry:
 rate_limit:
   enabled: true
   requests_per_minute: 100
+
+grpc:
+  port: 50051
+
+agent:
+  heartbeat_interval_sec: 10
+  heartbeat_timeout_sec: 30
