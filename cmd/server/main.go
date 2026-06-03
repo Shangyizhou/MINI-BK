@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -10,14 +11,16 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-
 	"github.com/redis/go-redis/v9"
+	"google.golang.org/grpc"
 
 	"github.com/shangyizhou/mini-bk/internal/api"
 	"github.com/shangyizhou/mini-bk/internal/config"
 	"github.com/shangyizhou/mini-bk/internal/executor"
+	"github.com/shangyizhou/mini-bk/internal/grpcserver"
 	"github.com/shangyizhou/mini-bk/internal/logstream"
 	"github.com/shangyizhou/mini-bk/internal/middleware"
+	"github.com/shangyizhou/mini-bk/internal/nodemanager"
 	"github.com/shangyizhou/mini-bk/internal/queue"
 	"github.com/shangyizhou/mini-bk/internal/scheduler"
 	"github.com/shangyizhou/mini-bk/internal/service"
@@ -83,6 +86,15 @@ func main() {
 	taskSvc := service.NewTaskService(taskStore, rdb, taskQueue)
 	exec := executor.NewExecutor(cfg.Scheduler.MaxConcurrentTasks, logStream)
 
+	// 初始化节点存储和管理器
+	nodeStore := store.NewNodeStore(pg)
+	nodeMgr := nodemanager.NewNodeManager(nodeStore)
+
+	// 启动节点离线检查
+	nodeCtx, nodeCancel := context.WithCancel(context.Background())
+	defer nodeCancel()
+	go nodeMgr.StartOfflineChecker(nodeCtx)
+
 	sched := scheduler.NewScheduler(
 		taskStore,
 		exec,
@@ -118,6 +130,23 @@ func main() {
 		}
 	}()
 
+	// 启动 gRPC Server
+	grpcSrv := grpc.NewServer()
+	agentSrv := grpcserver.NewAgentServer(nodeMgr)
+	grpcserver.RegisterWithGRPC(grpcSrv, agentSrv)
+
+	go func() {
+		lis, err := net.Listen("tcp", ":50051")
+		if err != nil {
+			slog.Error("gRPC 监听失败", "error", err)
+			return
+		}
+		slog.Info("gRPC 服务启动中", "addr", ":50051")
+		if err := grpcSrv.Serve(lis); err != nil {
+			slog.Error("gRPC 服务错误", "error", err)
+		}
+	}()
+
 	// 等待退出信号
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
@@ -129,6 +158,7 @@ func main() {
 	defer shutdownCancel()
 
 	schedCancel() // 先停调度器
+	grpcSrv.GracefulStop()
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("服务强制关闭", "error", err)

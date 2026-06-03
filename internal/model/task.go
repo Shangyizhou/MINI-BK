@@ -73,6 +73,8 @@ type Task struct {
 	RetryCount       int               `json:"retry_count"`
 	RetryIntervalSec int               `json:"retry_interval_sec"`
 	IdempotencyKey   string            `json:"idempotency_key"`
+	NodeSelector     map[string]string `json:"node_selector"`
+	AssignedNodeID   string            `json:"assigned_node_id"`
 	Status           TaskStatus        `json:"status"`
 	ExitCode         *int              `json:"exit_code"`
 	Stdout           string            `json:"stdout"`
