@@ -17,6 +17,7 @@ type nodeStore interface {
 	Create(ctx context.Context, node *model.Node) error
 	Update(ctx context.Context, node *model.Node) error
 	GetByNodeID(ctx context.Context, nodeID string) (*model.Node, error)
+	List(ctx context.Context, status string) ([]*model.Node, error)
 	UpdateHeartbeat(ctx context.Context, nodeID string, cpuPct float64, memUsedMB, diskUsedMB int, loadAvg float64, runningTasks int) error
 }
 
@@ -190,6 +191,16 @@ func (m *NodeManager) GetOnlineNodes() []*model.Node {
 		}
 	}
 	return result
+}
+
+// ListNodes returns all nodes, optionally filtered by status.
+func (m *NodeManager) ListNodes(ctx context.Context, status string) ([]*model.Node, error) {
+	return m.store.List(ctx, status)
+}
+
+// GetNode returns a single node by its node_id.
+func (m *NodeManager) GetNode(ctx context.Context, nodeID string) (*model.Node, error) {
+	return m.store.GetByNodeID(ctx, nodeID)
 }
 
 // DrainNode marks node as drain (no new tasks, existing tasks continue)

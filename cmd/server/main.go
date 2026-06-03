@@ -115,7 +115,7 @@ func main() {
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery())
 	router.Use(middleware.RateLimit(rdb, cfg.RateLimit.Enabled, cfg.RateLimit.RequestsPerMinute))
-	api.RegisterRoutes(router, taskSvc, sched, logStream, rdb)
+	api.RegisterRoutes(router, taskSvc, sched, logStream, rdb, nodeMgr)
 
 	// 启动 HTTP Server
 	srv := &http.Server{

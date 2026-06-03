@@ -8,7 +8,7 @@ import (
 )
 
 // RegisterRoutes 注册所有 API 路由。
-func RegisterRoutes(r *gin.Engine, taskSvc taskService, rp resourceProvider, logStream *logstream.LogStream, rdb *redis.Client) {
+func RegisterRoutes(r *gin.Engine, taskSvc taskService, rp resourceProvider, logStream *logstream.LogStream, rdb *redis.Client, nodeSvc nodeService) {
 	v1 := r.Group("/api/v1")
 	{
 		tasks := v1.Group("/tasks")
@@ -20,6 +20,13 @@ func RegisterRoutes(r *gin.Engine, taskSvc taskService, rp resourceProvider, log
 			tasks.POST("/:task_uid/rerun", rerunTask(taskSvc))
 			tasks.GET("/:task_uid/log", getTaskLog(taskSvc))
 			tasks.GET("/:task_uid/log/stream", streamTaskLog(taskSvc, logStream))
+		}
+		nodes := v1.Group("/nodes")
+		{
+			nodes.GET("", listNodes(nodeSvc))
+			nodes.GET("/:node_id", getNode(nodeSvc))
+			nodes.POST("/:node_id/drain", drainNode(nodeSvc))
+			nodes.POST("/:node_id/uncordon", uncordonNode(nodeSvc))
 		}
 		v1.GET("/resources", getResources(rp))
 		v1.GET("/stats", getStats(taskSvc, rdb))

@@ -51,6 +51,18 @@ func (m *mockStore) GetByNodeID(ctx context.Context, nodeID string) (*model.Node
 	return nil, model.ErrTaskNotFound
 }
 
+func (m *mockStore) List(ctx context.Context, status string) ([]*model.Node, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var result []*model.Node
+	for _, node := range m.nodes {
+		if status == "" || string(node.Status) == status {
+			result = append(result, node)
+		}
+	}
+	return result, nil
+}
+
 func (m *mockStore) UpdateHeartbeat(ctx context.Context, nodeID string, cpuPct float64, memUsedMB, diskUsedMB int, loadAvg float64, runningTasks int) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
