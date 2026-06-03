@@ -201,6 +201,7 @@ func (q *RedisQueue) Size(ctx context.Context) (int64, error) {
 func (q *RedisQueue) Close() error {
 	if q.closed.CompareAndSwap(false, true) {
 		close(q.stopCh)
+		return q.rdb.Close()
 	}
-	return q.rdb.Close()
+	return nil
 }

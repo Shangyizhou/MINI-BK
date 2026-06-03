@@ -165,12 +165,12 @@ func TestRedisQueue_PushDelayed(t *testing.T) {
 	ctx := context.Background()
 	task := model.NewTask("delayed", "echo delayed")
 
-	if err := q.PushDelayed(ctx, task, 100*time.Millisecond); err != nil {
+	if err := q.PushDelayed(ctx, task, 2*time.Second); err != nil {
 		t.Fatalf("PushDelayed() error = %v", err)
 	}
 
 	// 未到期时不应出队
-	immediate, err := q.Pop(ctx, 50*time.Millisecond)
+	immediate, err := q.Pop(ctx, 100*time.Millisecond)
 	if err != nil {
 		t.Fatalf("Pop() error = %v", err)
 	}
@@ -178,8 +178,8 @@ func TestRedisQueue_PushDelayed(t *testing.T) {
 		t.Error("延迟任务在到期前不应出队")
 	}
 
-	// 等待延迟到期（processDelayedLoop 每 500ms 运行一次，所以最多需等 600ms）
-	got, err := q.Pop(ctx, 800*time.Millisecond)
+	// 等待延迟到期（processDelayedLoop 每 500ms 运行一次 + 2s delay）
+	got, err := q.Pop(ctx, 5*time.Second)
 	if err != nil {
 		t.Fatalf("Pop() error = %v", err)
 	}
