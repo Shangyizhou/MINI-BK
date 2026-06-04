@@ -128,7 +128,7 @@ func TestScheduler_ScheduleCreatedTask(t *testing.T) {
 	exec := &mockExecutor{}
 	q := queue.NewInMemQueue(10)
 	defer q.Close()
-	sched := NewScheduler(store, exec, 500*time.Millisecond, 10, nil, q, nil, 0)
+	sched := NewScheduler(store, exec, 500*time.Millisecond, 10, nil, q, nil, 0, nil)
 
 	task := model.NewTask("test-schedule", "echo hello")
 	task.CPULimit = 1
@@ -151,7 +151,7 @@ func TestScheduler_ResourceInsufficient(t *testing.T) {
 	exec := &mockExecutor{}
 	q := queue.NewInMemQueue(10)
 	defer q.Close()
-	sched := NewScheduler(store, exec, 500*time.Millisecond, 10, nil, q, nil, 0)
+	sched := NewScheduler(store, exec, 500*time.Millisecond, 10, nil, q, nil, 0, nil)
 
 	task := model.NewTask("test-heavy", "echo hello")
 	task.CPULimit = 999
@@ -173,7 +173,7 @@ func TestScheduler_StartStop(t *testing.T) {
 	exec := &mockExecutor{}
 	q := queue.NewInMemQueue(10)
 	defer q.Close()
-	sched := NewScheduler(store, exec, 100*time.Millisecond, 10, nil, q, nil, 0)
+	sched := NewScheduler(store, exec, 100*time.Millisecond, 10, nil, q, nil, 0, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go sched.Start(ctx)
@@ -186,7 +186,7 @@ func TestScheduler_StartStop(t *testing.T) {
 }
 
 func TestSelectNode_NoNodeManager(t *testing.T) {
-	sched := NewScheduler(nil, nil, 100*time.Millisecond, 10, nil, nil, nil, 0)
+	sched := NewScheduler(nil, nil, 100*time.Millisecond, 10, nil, nil, nil, 0, nil)
 	task := model.NewTask("test", "echo hello")
 
 	node, err := sched.SelectNode(task)
@@ -200,7 +200,7 @@ func TestSelectNode_NoNodeManager(t *testing.T) {
 
 func TestSelectNode_LabelMatching(t *testing.T) {
 	nodeMgr := &mockNodeManager{}
-	sched := NewScheduler(nil, nil, 100*time.Millisecond, 10, nil, nil, nil, 0)
+	sched := NewScheduler(nil, nil, 100*time.Millisecond, 10, nil, nil, nil, 0, nil)
 	sched.SetNodeManager(nodeMgr)
 
 	// Add candidate nodes
@@ -256,7 +256,7 @@ func TestSelectNode_LabelMatching(t *testing.T) {
 
 func TestSelectNode_ResourceFiltering(t *testing.T) {
 	nodeMgr := &mockNodeManager{}
-	sched := NewScheduler(nil, nil, 100*time.Millisecond, 10, nil, nil, nil, 0)
+	sched := NewScheduler(nil, nil, 100*time.Millisecond, 10, nil, nil, nil, 0, nil)
 	sched.SetNodeManager(nodeMgr)
 
 	nodeMgr.nodes = []*model.Node{
@@ -316,7 +316,7 @@ func TestSelectNode_ResourceFiltering(t *testing.T) {
 
 func TestSelectNode_LeastAllocated(t *testing.T) {
 	nodeMgr := &mockNodeManager{}
-	sched := NewScheduler(nil, nil, 100*time.Millisecond, 10, nil, nil, nil, 0)
+	sched := NewScheduler(nil, nil, 100*time.Millisecond, 10, nil, nil, nil, 0, nil)
 	sched.SetNodeManager(nodeMgr)
 
 	// All nodes have same labels and sufficient resources, different utilization
@@ -370,7 +370,7 @@ func TestSelectNode_LeastAllocated(t *testing.T) {
 
 func TestSelectNode_SchedulableOnly(t *testing.T) {
 	nodeMgr := &mockNodeManager{}
-	sched := NewScheduler(nil, nil, 100*time.Millisecond, 10, nil, nil, nil, 0)
+	sched := NewScheduler(nil, nil, 100*time.Millisecond, 10, nil, nil, nil, 0, nil)
 	sched.SetNodeManager(nodeMgr)
 
 	nodeMgr.nodes = []*model.Node{
@@ -411,7 +411,7 @@ func TestDispatch_NodeMgrFallback(t *testing.T) {
 	exec := &mockExecutor{}
 	q := queue.NewInMemQueue(10)
 	defer q.Close()
-	sched := NewScheduler(store, exec, 500*time.Millisecond, 10, nil, q, nil, 0)
+	sched := NewScheduler(store, exec, 500*time.Millisecond, 10, nil, q, nil, 0, nil)
 
 	task := model.NewTask("test-fallback", "echo hello")
 	task.CPULimit = 1

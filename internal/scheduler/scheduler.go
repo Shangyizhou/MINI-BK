@@ -61,8 +61,8 @@ type Scheduler struct {
 // NewScheduler creates a new Scheduler with the given store, executor, tick interval,
 // and max concurrency. It detects total CPU via runtime.NumCPU() and defaults
 // totalMemMB to 8192. If etcdClient is provided, it uses etcd CAS for duplicate
-// scheduling prevention.
-func NewScheduler(store TaskStore, exec executor.TaskExecutor, tickInterval time.Duration, maxConcurrent int, rdb *redis.Client, q queue.TaskQueue, etcdClient *clientv3.Client, leaseID clientv3.LeaseID) *Scheduler {
+// scheduling prevention. If election is provided, it runs with leader election.
+func NewScheduler(store TaskStore, exec executor.TaskExecutor, tickInterval time.Duration, maxConcurrent int, rdb *redis.Client, q queue.TaskQueue, etcdClient *clientv3.Client, leaseID clientv3.LeaseID, election *election.LeaderElection) *Scheduler {
 	schedulerID := fmt.Sprintf("scheduler-%s", uuid.New().String()[:8])
 	return &Scheduler{
 		store:         store,
@@ -78,6 +78,7 @@ func NewScheduler(store TaskStore, exec executor.TaskExecutor, tickInterval time
 		etcdClient:    etcdClient,
 		schedulerID:   schedulerID,
 		leaseID:       leaseID,
+		election:      election,
 	}
 }
 
@@ -87,10 +88,10 @@ func (s *Scheduler) SetNodeManager(nm NodeManager) {
 	s.nodeMgr = nm
 }
 
-// Start starts the scheduler's tick loop and listens for task cancellation
-// via Redis Pub/Sub. It runs until the context is cancelled.
+// Start starts the scheduler. If LeaderElection is configured, only dispatches
+// when leader. It also listens for task cancellation via Redis Pub/Sub.
 func (s *Scheduler) Start(ctx context.Context) {
-	// Start Redis Pub/Sub listener for task cancellation
+	// Start Redis Pub/Sub listener for task cancellation (runs regardless of leader status)
 	if s.rdb != nil {
 		go func() {
 			pubsub := s.rdb.PSubscribe(ctx, "tasks:cancel:*")
@@ -126,13 +127,47 @@ func (s *Scheduler) Start(ctx context.Context) {
 		}()
 	}
 
+	if s.election == nil {
+		// No election configured, run as single scheduler (Phase 1-3 behavior)
+		slog.Info("无 Leader Election，以单调度器模式启动")
+		s.runTickLoop(ctx)
+		return
+	}
+
+	// Run election loop
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				slog.Info("等待成为 Leader...")
+				if err := s.election.Campaign(ctx); err != nil {
+					slog.Warn("竞选失败，重试", "error", err)
+					time.Sleep(2 * time.Second)
+					continue
+				}
+				// Became leader
+				slog.Info("已成为 Leader，开始调度")
+				s.runTickLoop(ctx)
+				slog.Warn("失去 Leader 身份")
+			}
+		}
+	}()
+}
+
+// runTickLoop runs the scheduling tick loop. It checks leader status on each tick
+// if leader election is configured.
+func (s *Scheduler) runTickLoop(ctx context.Context) {
 	ticker := time.NewTicker(s.tickInterval)
 	defer ticker.Stop()
-
 	for {
+		// Only process if we're still the leader
+		if s.election != nil && !s.election.IsLeader() {
+			return
+		}
 		select {
 		case <-ctx.Done():
-			slog.Info("scheduler: stopped")
 			return
 		case <-ticker.C:
 			s.tick(ctx)

@@ -18,6 +18,7 @@ import (
 	"github.com/shangyizhou/mini-bk/internal/api"
 	"github.com/shangyizhou/mini-bk/internal/config"
 	"github.com/shangyizhou/mini-bk/internal/discovery"
+	"github.com/shangyizhou/mini-bk/internal/election"
 	"github.com/shangyizhou/mini-bk/internal/executor"
 	"github.com/shangyizhou/mini-bk/internal/grpcserver"
 	"github.com/shangyizhou/mini-bk/internal/logstream"
@@ -141,6 +142,18 @@ func main() {
 		}
 	}
 
+	// Create Leader Election when etcd is available
+	var leaderElection *election.LeaderElection
+	if etcdClient != nil {
+		elec, err := election.NewLeaderElection(etcdClient, "/mini-bk/election", 10)
+		if err != nil {
+			slog.Warn("创建 Leader Election 失败", "error", err)
+		} else {
+			leaderElection = elec
+			defer leaderElection.Close()
+		}
+	}
+
 	sched := scheduler.NewScheduler(
 		taskStore,
 		exec,
@@ -150,6 +163,7 @@ func main() {
 		taskQueue,
 		etcdClient,
 		schedLeaseID,
+		leaderElection,
 	)
 	sched.SetNodeManager(nodeMgr)
 
