@@ -10,8 +10,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
+	clientv3 "go.etcd.io/etcd/client/v3"
 
+	"github.com/shangyizhou/mini-bk/internal/election"
 	"github.com/shangyizhou/mini-bk/internal/executor"
 	"github.com/shangyizhou/mini-bk/internal/model"
 	"github.com/shangyizhou/mini-bk/internal/queue"
@@ -49,12 +52,18 @@ type Scheduler struct {
 	queue         queue.TaskQueue
 	nodeTasks     map[string]chan *model.Task // nodeID -> pending task queue
 	nodeTasksMu   sync.Mutex
+	etcdClient    *clientv3.Client  // etcd client for CAS claims
+	schedulerID   string            // unique ID for this scheduler instance
+	leaseID       clientv3.LeaseID  // etcd lease for claim keys
+	election      *election.LeaderElection // optional leader election (added in Phase 4 Task 6)
 }
 
 // NewScheduler creates a new Scheduler with the given store, executor, tick interval,
 // and max concurrency. It detects total CPU via runtime.NumCPU() and defaults
-// totalMemMB to 8192.
-func NewScheduler(store TaskStore, exec executor.TaskExecutor, tickInterval time.Duration, maxConcurrent int, rdb *redis.Client, q queue.TaskQueue) *Scheduler {
+// totalMemMB to 8192. If etcdClient is provided, it uses etcd CAS for duplicate
+// scheduling prevention.
+func NewScheduler(store TaskStore, exec executor.TaskExecutor, tickInterval time.Duration, maxConcurrent int, rdb *redis.Client, q queue.TaskQueue, etcdClient *clientv3.Client, leaseID clientv3.LeaseID) *Scheduler {
+	schedulerID := fmt.Sprintf("scheduler-%s", uuid.New().String()[:8])
 	return &Scheduler{
 		store:         store,
 		executor:      exec,
@@ -66,6 +75,9 @@ func NewScheduler(store TaskStore, exec executor.TaskExecutor, tickInterval time
 		cancelFuncs:   make(map[string]context.CancelFunc),
 		queue:         q,
 		nodeTasks:     make(map[string]chan *model.Task),
+		etcdClient:    etcdClient,
+		schedulerID:   schedulerID,
+		leaseID:       leaseID,
 	}
 }
 
@@ -229,9 +241,42 @@ func (s *Scheduler) SelectNode(task *model.Task) (*model.Node, error) {
 	return filtered[0], nil
 }
 
+// ClaimTask tries to claim a task via etcd CAS transaction.
+// Returns true if this scheduler successfully claimed the task.
+// When etcd is not configured, always returns true (single scheduler mode).
+func (s *Scheduler) ClaimTask(ctx context.Context, taskUID string) (bool, error) {
+	if s.etcdClient == nil {
+		return true, nil // no etcd, single scheduler, always claim
+	}
+	key := fmt.Sprintf("/tasks/claimed/%s", taskUID)
+	txn := s.etcdClient.Txn(ctx).
+		If(clientv3.Compare(clientv3.Version(key), "=", 0)).
+		Then(clientv3.OpPut(key, s.schedulerID, clientv3.WithLease(s.leaseID))).
+		Else(clientv3.OpGet(key))
+	resp, err := txn.Commit()
+	if err != nil {
+		return false, fmt.Errorf("claim task: %w", err)
+	}
+	if resp.Succeeded {
+		slog.Info("任务抢占成功", "task_uid", taskUID, "scheduler", s.schedulerID)
+	}
+	return resp.Succeeded, nil
+}
+
 // dispatch transitions a task to Running, updates the store, and launches
 // execution in a goroutine. It uses remote execution when a suitable node is found.
 func (s *Scheduler) dispatch(ctx context.Context, task *model.Task) {
+	// Claim the task first (prevents duplicate scheduling)
+	claimed, err := s.ClaimTask(ctx, task.TaskUID)
+	if err != nil {
+		slog.Error("任务抢占失败", "task_uid", task.TaskUID, "error", err)
+		return
+	}
+	if !claimed {
+		slog.Info("任务已被其他 Scheduler 抢占", "task_uid", task.TaskUID)
+		return
+	}
+
 	// If task is in created state, first transition to pending
 	if task.Status == model.TaskStatusCreated {
 		if err := task.TransitionTo(model.TaskStatusPending); err != nil {

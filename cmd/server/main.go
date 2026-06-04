@@ -119,6 +119,17 @@ func main() {
 		nodeMgr.StartNodeWatcher(nodeWatcherCtx)
 	}
 
+	// Create etcd lease for scheduler claim keys
+	var schedLeaseID clientv3.LeaseID
+	if etcdClient != nil {
+		lease, err := etcdClient.Grant(ctx, 60) // 60s TTL for claim keys
+		if err != nil {
+			slog.Warn("创建调度器 etcd 租约失败", "error", err)
+		} else {
+			schedLeaseID = lease.ID
+		}
+	}
+
 	sched := scheduler.NewScheduler(
 		taskStore,
 		exec,
@@ -126,6 +137,8 @@ func main() {
 		cfg.Scheduler.MaxConcurrentTasks,
 		rdb,
 		taskQueue,
+		etcdClient,
+		schedLeaseID,
 	)
 	sched.SetNodeManager(nodeMgr)
 
