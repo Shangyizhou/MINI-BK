@@ -14,6 +14,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	clientv3 "go.etcd.io/etcd/client/v3"
 
+	"github.com/shangyizhou/mini-bk/internal/config"
 	"github.com/shangyizhou/mini-bk/internal/election"
 	"github.com/shangyizhou/mini-bk/internal/executor"
 	"github.com/shangyizhou/mini-bk/internal/model"
@@ -56,6 +57,7 @@ type Scheduler struct {
 	schedulerID   string            // unique ID for this scheduler instance
 	leaseID       clientv3.LeaseID  // etcd lease for claim keys
 	election      *election.LeaderElection // optional leader election (added in Phase 4 Task 6)
+	configWatcher *config.ConfigWatcher    // config hot reload via etcd Watch (added in Phase 4 Task 7)
 }
 
 // NewScheduler creates a new Scheduler with the given store, executor, tick interval,
@@ -75,10 +77,11 @@ func NewScheduler(store TaskStore, exec executor.TaskExecutor, tickInterval time
 		cancelFuncs:   make(map[string]context.CancelFunc),
 		queue:         q,
 		nodeTasks:     make(map[string]chan *model.Task),
-		etcdClient:    etcdClient,
-		schedulerID:   schedulerID,
-		leaseID:       leaseID,
-		election:      election,
+		etcdClient:     etcdClient,
+		schedulerID:    schedulerID,
+		leaseID:        leaseID,
+		election:       election,
+		configWatcher:  config.NewConfigWatcher(etcdClient),
 	}
 }
 
@@ -125,6 +128,28 @@ func (s *Scheduler) Start(ctx context.Context) {
 				}
 			}
 		}()
+	}
+
+	// Start etcd config watcher for dynamic config changes (Task 7)
+	if s.configWatcher != nil {
+		s.configWatcher.Watch(ctx, "/config/scheduler/", func(key string, value []byte) {
+			switch {
+			case strings.HasSuffix(key, "/max_concurrent_tasks"):
+				var val int
+				fmt.Sscanf(string(value), "%d", &val)
+				if val > 0 {
+					s.maxConcurrent = val
+					slog.Info("调度器配置更新", "max_concurrent", val)
+				}
+			case strings.HasSuffix(key, "/tick_interval_ms"):
+				var val int
+				fmt.Sscanf(string(value), "%d", &val)
+				if val > 0 {
+					s.tickInterval = time.Duration(val) * time.Millisecond
+					slog.Info("调度器配置更新", "tick_interval_ms", val)
+				}
+			}
+		})
 	}
 
 	if s.election == nil {
