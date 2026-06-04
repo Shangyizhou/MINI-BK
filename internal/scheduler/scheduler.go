@@ -81,7 +81,12 @@ func NewScheduler(store TaskStore, exec executor.TaskExecutor, tickInterval time
 		schedulerID:    schedulerID,
 		leaseID:        leaseID,
 		election:       election,
-		configWatcher:  config.NewConfigWatcher(etcdClient),
+		configWatcher: func() *config.ConfigWatcher {
+			if etcdClient != nil {
+				return config.NewConfigWatcher(etcdClient)
+			}
+			return nil
+		}(),
 	}
 }
 

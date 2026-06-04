@@ -244,3 +244,77 @@
 ### 发布
 
 - Tag: v0.3.0
+
+---
+
+## 2026-06-05 — Phase 4 多 Scheduler 高可用
+
+### etcd 连接与配置
+
+- etcd 连接封装：`store.NewEtcdStore()`，支持 endpoints + dial_timeout 配置
+- etcd 连接失败时优雅降级，不影响核心功能
+- 配置项扩展：Etcd（endpoints/dial_timeout_sec）
+- 默认值：localhost:2379，dial_timeout_sec=5
+
+### Leader Election（Task 2）
+
+- `internal/election/election.go`：基于 etcd concurrency 包的 Election + Session
+- Session 带 TTL（10s），定期 KeepAlive
+- Campaign 阻塞直到成为 Leader 或 ctx 取消
+- IsLeader() 查询当前是否为 Leader
+- Resign() 主动放弃 Leader 身份
+
+### NodeManager 迁移到 etcd（Task 3）
+
+- Register：Agent 注册时写 PostgreSQL（持久记录）+ etcd Lease（存活状态）
+- Heartbeat：续约 etcd Lease（KeepAliveOnce）
+- 离线检测：etcd Watch `/nodes/` 前缀监听 Delete 事件
+- 不再依赖 PostgreSQL heartbeat 时间戳判断离线
+- etcd 不可用时降级到 PostgreSQL + Redis 缓存模式
+
+### 调度防重复抢占（CAS）（Task 4）
+
+- Scheduler.ClaimTask：通过 etcd 事务 CAS 抢占任务 key `/tasks/claimed/<task_uid>`
+- Key 带租约（60s TTL），Scheduler 崩溃后自动释放
+- dispatch 前先 Claim，成功则执行，失败跳过（已被其他 Scheduler 抢占）
+- etcd 不可用时始终 claim 成功（单 Scheduler 兼容模式）
+
+### 服务发现（Task 5）
+
+- `internal/discovery/discovery.go`：etcd Watch `/nodes/` 前缀
+- 实时更新内存节点缓存
+- 提供 GetServiceEndpoints 和 WatchNodes 接口
+- etcd 不可用时跳过服务发现
+
+### Scheduler 集成 Leader Election（Task 6）
+
+- Scheduler.Start 改为 Leader Election 循环
+- 非 Leader 不执行调度，tick loop 中持续检查 Leader 身份
+- 失去 Leader 后自动重新竞选
+- 兼容无 etcd 模式：直接启动 tick loop
+
+### 配置热更新（Task 7）
+
+- `internal/config/watcher.go`：ConfigWatcher + ConfigChangeCallback
+- Watch 方法初始加载 + 持续监听 etcd 前缀
+- Scheduler 监听 `/config/scheduler/`：支持动态更新 max_concurrent_tasks 和 tick_interval_ms
+- UpdateConfig 方法写入 etcd 配置值
+
+### Docker Compose 集成 etcd（Task 8）
+
+- `deployments/docker-compose.yml` 新增 etcd 服务（quay.io/coreos/etcd:v3.5.19）
+- Server 环境变量 MINIBK_ETCD_ENDPOINTS=etcd:2379
+- Server depends_on 增加 etcd
+- 支持多 Server 实例（docker-compose scale server=2）
+
+### 主入口增强（main.go）
+
+- etcd 连接（优雅降级）
+- etcd Lease 创建（60s TTL 用于 CAS claim keys）
+- Leader Election 创建
+- ServiceDiscovery 启动 Watch
+- ConfigWatcher 注入 Scheduler
+
+### 发布
+
+- Tag: v0.4.0

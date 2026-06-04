@@ -16,25 +16,26 @@
 | 进程管理 | os/exec + goroutine + channel | ✅ |
 | 队列/缓存 | Redis | ✅ |
 | 进程间通信 | gRPC + Protobuf | ✅ |
-| 一致性存储 | etcd | Phase 4 |
+| 一致性存储 | etcd | ✅ |
 | 前端 | React + Ant Design | Phase 3+ |
 | 可观测性 | Prometheus + Grafana | Phase 7 |
 
 ## 当前阶段
 
-**Phase 3 — 节点管理与远程执行** (已完成)
+**Phase 4 — 多 Scheduler 高可用调度** (已完成)
 
-在 Phase 2 基础上引入节点发现、心跳保活、gRPC 远程执行和节点选择调度。Server 同时提供 HTTP API 和 gRPC 端点，Agent 通过 gRPC 注册、心跳、拉取任务并报告结果。
+在 Phase 3 基础上引入 etcd 作为控制面一致性存储，实现多 Scheduler 高可用。NodeManager 使用 etcd Lease 进行存活检测，Scheduler 通过 Leader Election 选主，任务分配用 etcd CAS 防重复抢占。
 
-### Phase 3 新增特性
+### Phase 4 新增特性
 
-- **节点注册与心跳**: Agent 启动时通过 gRPC Register 注册，周期性 Heartbeat 上报资源使用
-- **节点离线检测**: NodeManager 每 5 秒检查节点心跳超时（默认 30 秒），超则标记 Offline
-- **节点管理 API**: 列表、详情、Drain、Uncordon 操作
-- **标签选择调度**: 任务通过 `node_selector` 指定目标节点标签，Scheduler SelectNode 三层筛选
-- **gRPC 远程执行**: Agent PullTask 轮询拉取任务，本地执行后 ReportResult 汇报结果
-- **节点选择器 (NodeSelector)**: 任务模型新增 `node_selector` JSONB 字段和 `assigned_node_id` 字段
-- **Agent 二进制**: `cmd/agent` 独立入口，支持 `-server-addr` 和 `-labels` 参数
+- **etcd 连接与配置**: etcd 作为可选组件，连接失败时优雅降级
+- **Leader Election**: 基于 etcd concurrency 包的 Leader 选举，竞选成功者执行调度
+- **NodeManager 迁移到 etcd**: 注册时写 PostgreSQL + etcd Lease；心跳续约；Watch 事件检测离线
+- **调度防重复抢占 (CAS)**: dispatch 前通过 etcd 事务 CAS 抢占任务 key，防止多 Scheduler 重复调度
+- **服务发现**: etcd Watch `/nodes/` 前缀实时更新节点缓存
+- **Scheduler 集成 Leader Election**: 非 Leader Scheduler 不执行调度，失去 Leader 后自动重选
+- **配置热更新**: ConfigWatcher 监听 `/config/scheduler/` 前缀，动态更新 max_concurrent 和 tick_interval
+- **Docker Compose**: 新增 etcd 服务，支持多 Server 实例
 
 ## 架构分层
 
@@ -44,17 +45,19 @@ cmd/agent/           ← Agent 入口：gRPC 客户端
 internal/
 ├── api/             ← HTTP 层：Gin router + handler
 ├── service/         ← 业务逻辑层
-├── scheduler/       ← 调度器：资源感知 ticker 循环 + 节点选择
+├── scheduler/       ← 调度器：资源感知 ticker 循环 + Leader Election + CAS 防重复
 ├── executor/        ← 执行器：os/exec 进程管理
 ├── model/           ← 数据模型 + 状态机 + 节点模型
-├── store/           ← 持久化层：PostgreSQL + Redis
+├── store/           ← 持久化层：PostgreSQL + Redis + etcd
 ├── queue/           ← 任务队列：Redis 队列 / 内存队列
 ├── logstream/       ← 实时日志流：SSE + Redis Stream
 ├── middleware/       ← HTTP 中间件：接口限流
-├── nodemanager/     ← 节点管理器：注册、心跳、离线检测、标签匹配（Phase 3）
-├── grpcserver/      ← gRPC 服务端：Agent 注册/心跳/PullTask/ReportResult（Phase 3）
-├── grpcclient/      ← gRPC 客户端连接池（Phase 3）
-└── config/          ← 配置管理：Viper
+├── nodemanager/     ← 节点管理器：etcd Lease 存活检测 + 标签匹配（Phase 4）
+├── election/        ← Leader Election：etcd concurrency 选主（Phase 4）
+├── discovery/       ← 服务发现：etcd Watch 节点列表（Phase 4）
+├── config/          ← 配置管理：Viper + ConfigWatcher 热更新（Phase 4）
+├── grpcserver/      ← gRPC 服务端：Agent 注册/心跳/PullTask/ReportResult
+├── grpcclient/      ← gRPC 客户端连接池
 ```
 
 ## 数据流
@@ -98,14 +101,25 @@ Server:
 
 ## 存储职责
 
-| 数据类型 | PostgreSQL | Redis | 说明 |
-|----------|------------|-------|------|
-| 任务记录 | ✅ 主 | | 所有任务的历史事实 |
-| 执行日志 | ✅ | ✅ 实时流 | stdout/stderr 落库 + Redis Stream 实时推送 |
-| 任务队列 | | ✅ 主 | 优先使用 Redis List/SortedSet，降级到 InMemQueue |
-| 节点记录 | ✅ 主 | | 节点注册信息+资源数据 |
-| 幂等去重 | | ✅ | SETNX 5 分钟窗口 |
-| 每日统计 | | ✅ | Hash 记录每日提交/成功/失败 |
+| 数据类型 | PostgreSQL | Redis | etcd | 说明 |
+|----------|------------|-------|------|------|
+| 任务记录 | ✅ 主 | | | 所有任务的历史事实 |
+| 执行日志 | ✅ | ✅ 实时流 | | stdout/stderr 落库 + Redis Stream 实时推送 |
+| 任务队列 | | ✅ 主 | | 优先使用 Redis List/SortedSet，降级到 InMemQueue |
+| 节点记录 | ✅ 主 | | ✅ 存活 | 注册信息存 PG，存活状态用 etcd Lease |
+| 幂等去重 | | ✅ | | SETNX 5 分钟窗口 |
+| 每日统计 | | ✅ | | Hash 记录每日提交/成功/失败 |
+| 调度抢占 | | | ✅ | etcd CAS 事务防止多 Scheduler 重复调度 |
+| Leader 选举 | | | ✅ | etcd concurrency Election 选主 |
+| 配置热更新 | | | ✅ | etcd Watch 动态更新运行时配置 |
+
+### 三层存储架构
+
+```
+PostgreSQL = 历史事实库      —— 任务/节点持久化记录，永不丢失
+Redis      = 高速临时层      —— 队列/缓存/统计/实时日志流
+etcd       = 控制面一致性存储  —— Leader Election / CAS 抢占 / 配置热更新 / 服务发现
+```
 
 ## 架构规则
 
@@ -324,7 +338,7 @@ curl -s -X POST http://localhost:8080/api/v1/tasks \
 
 ```bash
 docker-compose -f deployments/docker-compose.yml up
-# 启动 PostgreSQL + Redis + Server(:8080, :50051) + Agent
+# 启动 PostgreSQL + Redis + etcd + Server(:8080, :50051) + Agent
 ```
 
 ### 便捷脚本清单
@@ -339,8 +353,9 @@ docker-compose -f deployments/docker-compose.yml up
 
 ## 已知风险
 
-1. **无分布式能力**: 当前单机执行，服务重启会丢失内存中的执行槽位（但 PostgreSQL 中的任务记录不丢）
+1. **服务重启丢失执行槽位**: 重启会丢失内存中的执行槽位（但 PostgreSQL 中的任务记录不丢）
 2. **无认证**: API 无鉴权，仅适合内网或本地使用
 3. **粗粒度资源控制**: CPU/内存限制仅用于调度决策，不做 cgroup 级别的硬隔离
-4. **Agent 单点**: Server 单点故障将导致所有 Agent 失联
+4. **etcd 单点**: Docker Compose 中 etcd 为单实例，生产应部署 etcd 集群
 5. **拉取延迟**: Agent PullTask 轮询间隔 2 秒，任务分配有秒级延迟
+6. **配置热更新未持久化**: 通过 etcd 的动态配置在 etcd 重启后丢失，需通过 ConfigWatcher.UpdateConfig 重新写入

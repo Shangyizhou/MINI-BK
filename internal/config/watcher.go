@@ -19,6 +19,11 @@ func NewConfigWatcher(client *clientv3.Client) *ConfigWatcher {
 
 // Watch watches for changes on a prefix and calls callback on each change
 func (cw *ConfigWatcher) Watch(ctx context.Context, prefix string, callback ConfigChangeCallback) {
+	if cw == nil || cw.client == nil {
+		slog.Warn("ConfigWatcher: etcd client not available, skipping watch", "prefix", prefix)
+		return
+	}
+
 	// Initial load
 	resp, err := cw.client.Get(ctx, prefix, clientv3.WithPrefix())
 	if err == nil {
@@ -48,6 +53,9 @@ func (cw *ConfigWatcher) Watch(ctx context.Context, prefix string, callback Conf
 
 // UpdateConfig publishes a config value to etcd
 func (cw *ConfigWatcher) UpdateConfig(ctx context.Context, key, value string) error {
+	if cw == nil || cw.client == nil {
+		return nil
+	}
 	_, err := cw.client.Put(ctx, key, value)
 	return err
 }
