@@ -10,11 +10,18 @@ import (
 	"github.com/spf13/viper"
 )
 
+// EtcdConfig etcd 连接配置。
+type EtcdConfig struct {
+	Endpoints      []string `mapstructure:"endpoints"`
+	DialTimeoutSec int      `mapstructure:"dial_timeout_sec"`
+}
+
 // Config 应用全局配置。
 type Config struct {
 	Server    ServerConfig    `mapstructure:"server"`
 	Database  DatabaseConfig  `mapstructure:"database"`
 	Redis     RedisConfig     `mapstructure:"redis"`
+	Etcd      EtcdConfig      `mapstructure:"etcd"`
 	Scheduler SchedulerConfig `mapstructure:"scheduler"`
 	Executor  ExecutorConfig  `mapstructure:"executor"`
 	Retry     RetryConfig     `mapstructure:"retry"`
@@ -134,6 +141,8 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("rate_limit.enabled", true)
 	v.SetDefault("rate_limit.requests_per_minute", 100)
 	v.SetDefault("grpc.port", 50051)
+	v.SetDefault("etcd.endpoints", []string{"localhost:2379"})
+	v.SetDefault("etcd.dial_timeout_sec", 5)
 	v.SetDefault("agent.heartbeat_interval_sec", 10)
 	v.SetDefault("agent.heartbeat_timeout_sec", 30)
 
