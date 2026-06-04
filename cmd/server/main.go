@@ -17,6 +17,7 @@ import (
 
 	"github.com/shangyizhou/mini-bk/internal/api"
 	"github.com/shangyizhou/mini-bk/internal/config"
+	"github.com/shangyizhou/mini-bk/internal/discovery"
 	"github.com/shangyizhou/mini-bk/internal/executor"
 	"github.com/shangyizhou/mini-bk/internal/grpcserver"
 	"github.com/shangyizhou/mini-bk/internal/logstream"
@@ -117,6 +118,16 @@ func main() {
 		nodeWatcherCtx, nodeWatcherCancel := context.WithCancel(context.Background())
 		defer nodeWatcherCancel()
 		nodeMgr.StartNodeWatcher(nodeWatcherCtx)
+	}
+
+	// 启动 etcd Watch 服务发现
+	var svcDiscovery *discovery.ServiceDiscovery
+	if etcdClient != nil {
+		svcDiscovery = discovery.NewServiceDiscovery(etcdClient)
+		discCtx, discCancel := context.WithCancel(context.Background())
+		defer discCancel()
+		svcDiscovery.StartWatching(discCtx)
+		slog.Info("服务发现已启动", "prefix", "/nodes/")
 	}
 
 	// Create etcd lease for scheduler claim keys
