@@ -79,7 +79,7 @@ func (m *mockStore) UpdateHeartbeat(ctx context.Context, nodeID string, cpuPct f
 
 func TestNodeManager_Register(t *testing.T) {
 	ms := newMockStore()
-	nm := NewNodeManager(ms)
+	nm := NewNodeManager(ms, nil)
 
 	resp, err := nm.Register(context.Background(), &proto.RegisterRequest{
 		Hostname:      "test-agent",
@@ -122,7 +122,7 @@ func TestNodeManager_Register(t *testing.T) {
 
 func TestNodeManager_Register_Duplicate(t *testing.T) {
 	ms := newMockStore()
-	nm := NewNodeManager(ms)
+	nm := NewNodeManager(ms, nil)
 
 	// Register once
 	resp1, _ := nm.Register(context.Background(), &proto.RegisterRequest{
@@ -152,7 +152,7 @@ func TestNodeManager_Register_Duplicate(t *testing.T) {
 
 func TestNodeManager_Heartbeat(t *testing.T) {
 	ms := newMockStore()
-	nm := NewNodeManager(ms)
+	nm := NewNodeManager(ms, nil)
 
 	// Register first
 	resp, _ := nm.Register(context.Background(), &proto.RegisterRequest{
@@ -208,7 +208,7 @@ func TestNodeManager_Heartbeat(t *testing.T) {
 
 func TestNodeManager_Heartbeat_RecoverFromDB(t *testing.T) {
 	ms := newMockStore()
-	nm := NewNodeManager(ms)
+	nm := NewNodeManager(ms, nil)
 
 	// Create node directly in mock store (simulating DB recovery path)
 	node := model.NewNode("recovered-agent", "10.0.0.2", "0.3.0", 4, 8192, 51200, nil)
@@ -355,7 +355,7 @@ func TestSplitLabel(t *testing.T) {
 
 func TestNodeManager_CheckOfflineNodes(t *testing.T) {
 	ms := newMockStore()
-	nm := NewNodeManager(ms)
+	nm := NewNodeManager(ms, nil)
 	nm.offlineAfter = 30 * time.Second
 
 	now := time.Now()
@@ -404,7 +404,7 @@ func TestNodeManager_CheckOfflineNodes(t *testing.T) {
 
 func TestNodeManager_DrainUncordon(t *testing.T) {
 	ms := newMockStore()
-	nm := NewNodeManager(ms)
+	nm := NewNodeManager(ms, nil)
 
 	// Register first
 	resp, _ := nm.Register(context.Background(), &proto.RegisterRequest{

@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"google.golang.org/grpc"
 
 	"github.com/shangyizhou/mini-bk/internal/api"
@@ -71,6 +72,22 @@ func main() {
 		slog.Info("Redis 未配置，日志流功能不可用")
 	}
 
+	// 连接 etcd（可选，用于 Leader Election 和节点存活检测）
+	var etcdClient *clientv3.Client
+	if len(cfg.Etcd.Endpoints) > 0 {
+		etcdConnCtx, etcdCancel := context.WithTimeout(ctx, time.Duration(cfg.Etcd.DialTimeoutSec)*time.Second)
+		etcdStore, err := store.NewEtcdStore(etcdConnCtx, cfg.Etcd.Endpoints, time.Duration(cfg.Etcd.DialTimeoutSec)*time.Second)
+		etcdCancel()
+		if err != nil {
+			slog.Warn("连接 etcd 失败，Leader Election 和 etcd Lease 不可用", "error", err)
+		} else {
+			etcdClient = etcdStore.Client
+			defer etcdStore.Close()
+		}
+	} else {
+		slog.Info("etcd 未配置，Leader Election 和 etcd Lease 不可用")
+	}
+
 	// 创建任务队列（优先使用 Redis，否则用内存队列）
 	var taskQueue queue.TaskQueue
 	if rdb != nil {
@@ -88,12 +105,19 @@ func main() {
 
 	// 初始化节点存储和管理器
 	nodeStore := store.NewNodeStore(pg)
-	nodeMgr := nodemanager.NewNodeManager(nodeStore)
+	nodeMgr := nodemanager.NewNodeManager(nodeStore, etcdClient)
 
 	// 启动节点离线检查
 	nodeCtx, nodeCancel := context.WithCancel(context.Background())
 	defer nodeCancel()
 	go nodeMgr.StartOfflineChecker(nodeCtx)
+
+	// 启动 etcd 节点监控（当 etcd 可用时）
+	if etcdClient != nil {
+		nodeWatcherCtx, nodeWatcherCancel := context.WithCancel(context.Background())
+		defer nodeWatcherCancel()
+		nodeMgr.StartNodeWatcher(nodeWatcherCtx)
+	}
 
 	sched := scheduler.NewScheduler(
 		taskStore,
