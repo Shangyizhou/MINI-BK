@@ -45,6 +45,25 @@ go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@lat
 echo "Running migrations..."
 "$HOME/go/bin/migrate" -path migrations -database "postgres://mini-bk:mini-bk@localhost:5432/mini-bk?sslmode=disable" up
 
+# Ensure Redis container is running
+if docker ps -a --format '{{.Names}}' | grep -q '^mini-bk-redis$'; then
+    if ! docker ps --format '{{.Names}}' | grep -q '^mini-bk-redis$'; then
+        echo "Starting existing Redis container..."
+        docker start mini-bk-redis
+    else
+        echo "Redis container already running."
+    fi
+else
+    echo "Creating Redis container..."
+    docker run -d --name mini-bk-redis -p 6379:6379 redis:7-alpine
+fi
+
+echo "Waiting for Redis to be ready..."
+until docker exec mini-bk-redis redis-cli ping 2>/dev/null | grep -q 'PONG'; do
+    sleep 1
+done
+echo "Redis is ready!"
+
 # Build and run
 echo "Building and starting server..."
 go run ./cmd/server
