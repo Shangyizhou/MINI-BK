@@ -318,3 +318,81 @@
 ### 发布
 
 - Tag: v0.4.0
+
+---
+
+## 2026-06-05 — Mini-BK Console 前端
+
+### 项目初始化
+
+- Vite + React 19 + TypeScript 6 + Ant Design 5 项目脚手架
+- 目录结构：components、pages、hooks、api、types、assets
+- 开发环境配置：Vite 代理 /api/v1 → localhost:8080
+
+### 基础布局
+
+- AppLayout：侧边栏导航 + 顶栏 + 内容区 + 页脚
+- 侧边栏带折叠功能
+- 路由配置：/（仪表盘）、/tasks（任务列表）、/tasks/new（创建任务）、/tasks/:taskUid（任务详情）、/nodes（节点列表）、/nodes/:nodeId（节点详情）
+
+### 仪表盘 (Dashboard)
+
+- 统计卡片：总提交任务数、成功率（含进度环）、失败任务数
+- 最近任务表格：名称、状态、优先级、创建时间
+- 节点概览：资源卡片（CPU 进度条、内存进度条、运行任务数、负载）
+- 点击行跳转到详情页
+
+### 任务列表 (TaskList)
+
+- 分页表格：任务 UID、名称、命令、状态、优先级、超时时间、创建时间
+- 状态筛选（Select 下拉）
+- 操作列：查看 / 取消 / 重跑
+- 状态标签颜色区分
+
+### 创建任务 (TaskCreate)
+
+- 双栏表单：名称、命令、工作目录、CPU 限制、内存限制、超时时间、优先级
+- 动态节点选择器列表（Form.List）
+- 表单校验 + 提交成功后跳转详情页
+
+### 任务详情 (TaskDetail)
+
+- 基本信息描述表（UID、命令、状态、优先级、重试、超时、节点分配等）
+- 操作按钮：取消 / 重新运行（Popconfirm 二次确认）
+- 任务输出：终端状态切换 stdout / stderr（深色背景终端风格）
+- 实时日志流：SSE 连接 + LogStream 组件，任务运行时自动连接
+- 错误 / 加载状态处理
+
+### 节点列表 (NodeList)
+
+- 表格：主机名、IP、状态（Badge）、CPU 使用率、内存使用率、运行任务数、标签、最后心跳
+- 状态筛选、点击行跳转
+- 操作列：排空 / 解除（Popconfirm 确认）
+
+### 节点详情 (NodeDetail)
+
+- 基本信息描述表
+- 资源仪表盘：CPU / 内存 / 磁盘 / 负载（Progress dashboard 样式）
+- 标签显示
+- 节点运行任务表格
+- 操作按钮：排空 / 解除
+
+### 错误处理与 Loading 完善
+
+- axios 拦截器 + antd message.error 全局错误通知
+- ErrorBoundary 组件包裹全局路由
+- 所有页面增加 loading（Spin / Card loading / Table loading）
+- 列表页增加空状态（Empty）
+- 详情页增加错误状态（Result）
+- 依赖 React Query 的 isError / error 处理
+
+### 技术栈
+
+| 层 | 选择 |
+|---|---|
+| 框架 | React 19 |
+| UI | Ant Design 5 + @ant-design/icons |
+| 路由 | react-router-dom v7 |
+| 数据请求 | @tanstack/react-query v5 + axios |
+| 构建 | Vite 8 + TypeScript 6 |
+| 日期 | dayjs |

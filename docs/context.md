@@ -17,7 +17,7 @@
 | 队列/缓存 | Redis | ✅ |
 | 进程间通信 | gRPC + Protobuf | ✅ |
 | 一致性存储 | etcd | ✅ |
-| 前端 | React + Ant Design | Phase 3+ |
+| 前端 | React 19 + Ant Design 5 + Vite | ✅ |
 | 可观测性 | Prometheus + Grafana | Phase 7 |
 
 ## 当前阶段
@@ -42,6 +42,7 @@
 ```
 cmd/server/          ← 入口：组装所有组件
 cmd/agent/           ← Agent 入口：gRPC 客户端
+web/                 ← 前端：React 19 + Ant Design 5 + Vite
 internal/
 ├── api/             ← HTTP 层：Gin router + handler
 ├── service/         ← 业务逻辑层
@@ -151,6 +152,14 @@ Created → Pending → Running → Success/Failed/Canceled
 - 结构化日志使用 `log/slog`
 
 ## 验证
+
+### 全量构建（前端 + 后端）
+
+```bash
+cd web && npm run build        # 前端构建 → dist/
+go build ./cmd/server           # 后端 Server
+go build ./cmd/agent            # 后端 Agent
+```
 
 ### 快速验证（无外部依赖）
 
@@ -326,6 +335,14 @@ curl -s -X POST http://localhost:8080/api/v1/tasks \
   -H "Content-Type: application/json" \
   -d '{"name":"selector","command":"echo on-node","node_selector":{"os":"linux"}}'
 # → {"task_uid":"xxx-xxx",...}
+```
+
+### 前端验证
+
+```bash
+cd web && npm run dev
+# 打开浏览器访问 http://localhost:5173
+# 后端 API 代理到 http://localhost:8080/api/v1
 ```
 
 ### 一键开发启动
