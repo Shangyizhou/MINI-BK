@@ -3,6 +3,17 @@ set -e
 
 echo "=== Setting up PostgreSQL ==="
 
+# 确保 Docker 可用（macOS 上自动启动 Colima）
+if ! docker info >/dev/null 2>&1; then
+    if command -v colima &>/dev/null; then
+        echo "Docker 不可用，正在启动 Colima..."
+        colima start
+    else
+        echo "错误: Docker 不可用，请安装 Docker Desktop 或 Colima"
+        exit 1
+    fi
+fi
+
 if docker ps -a --format '{{.Names}}' | grep -q '^mini-bk-pg$'; then
     echo "Removing old PostgreSQL container..."
     docker rm -f mini-bk-pg
