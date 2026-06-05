@@ -23,6 +23,16 @@ func NewEtcdStore(ctx context.Context, endpoints []string, dialTimeout time.Dura
 	if err != nil {
 		return nil, fmt.Errorf("connect etcd: %w", err)
 	}
+
+	// Verify connection is actually working
+	pingCtx, pingCancel := context.WithTimeout(ctx, 3*time.Second)
+	defer pingCancel()
+	_, err = cli.Get(pingCtx, "/", clientv3.WithCountOnly())
+	if err != nil {
+		cli.Close()
+		return nil, fmt.Errorf("ping etcd: %w", err)
+	}
+
 	slog.Info("已连接到 etcd", "endpoints", endpoints)
 	return &EtcdStore{Client: cli}, nil
 }

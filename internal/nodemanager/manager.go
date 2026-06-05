@@ -198,9 +198,10 @@ func (m *NodeManager) StartNodeWatcher(ctx context.Context) {
 		slog.Info("etcd 未配置，跳过节点监控")
 		return
 	}
-	watchCh := m.etcdClient.Watch(ctx, "/nodes/", clientv3.WithPrefix())
-	slog.Info("etcd 节点监控已启动", "prefix", "/nodes/")
+	slog.Info("etcd 节点监控启动中", "prefix", "/nodes/")
 	go func() {
+		watchCh := m.etcdClient.Watch(ctx, "/nodes/", clientv3.WithPrefix())
+		slog.Info("etcd 节点监控已启动", "prefix", "/nodes/")
 		for resp := range watchCh {
 			for _, ev := range resp.Events {
 				if ev.Type == clientv3.EventTypeDelete {

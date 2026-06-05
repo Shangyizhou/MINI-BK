@@ -49,6 +49,7 @@ func NewServiceDiscovery(client *clientv3.Client) *ServiceDiscovery {
 // StartWatching begins watching /nodes/ prefix and updating in-memory cache.
 // It performs an initial load of all existing nodes, then watches for changes.
 func (sd *ServiceDiscovery) StartWatching(ctx context.Context) {
+	go func() {
 	// 1. Initial load: Get all keys under /nodes/
 	resp, err := sd.client.Get(ctx, "/nodes/", clientv3.WithPrefix())
 	if err == nil {
@@ -71,8 +72,8 @@ func (sd *ServiceDiscovery) StartWatching(ctx context.Context) {
 	if resp != nil && resp.Header != nil {
 		watchRev = resp.Header.Revision + 1
 	}
-	watchCh := sd.client.Watch(ctx, "/nodes/", clientv3.WithPrefix(), clientv3.WithRev(watchRev))
 	go func() {
+		watchCh := sd.client.Watch(ctx, "/nodes/", clientv3.WithPrefix(), clientv3.WithRev(watchRev))
 		slog.Info("服务发现 Watch 已启动", "prefix", "/nodes/")
 		for resp := range watchCh {
 			for _, ev := range resp.Events {
@@ -99,6 +100,7 @@ func (sd *ServiceDiscovery) StartWatching(ctx context.Context) {
 				}
 			}
 		}
+	}()
 	}()
 }
 

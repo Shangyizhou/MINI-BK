@@ -134,7 +134,9 @@ func main() {
 	// Create etcd lease for scheduler claim keys
 	var schedLeaseID clientv3.LeaseID
 	if etcdClient != nil {
-		lease, err := etcdClient.Grant(ctx, 60) // 60s TTL for claim keys
+		leaseCtx, leaseCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		lease, err := etcdClient.Grant(leaseCtx, 60)
+		leaseCancel()
 		if err != nil {
 			slog.Warn("创建调度器 etcd 租约失败", "error", err)
 		} else {

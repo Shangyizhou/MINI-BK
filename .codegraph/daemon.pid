@@ -1,6 +1,0 @@
-{
-  "pid": 90819,
-  "version": "0.9.8",
-  "socketPath": "/Users/syz/code/golang/Mini-BK/.codegraph/daemon.sock",
-  "startedAt": 1780470252839
-}
